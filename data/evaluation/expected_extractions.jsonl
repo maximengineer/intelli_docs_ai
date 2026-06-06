@@ -1,0 +1,8 @@
+{"filename":"invoice_acme.txt","expected_fields":{"document_type":"invoice","vendor":"Acme Analytics Ltd","amount":12450.0,"currency":"EUR"}}
+{"filename":"contract_northwind.txt","expected_fields":{"document_type":"contract","party_name":"Northwind Retail Group","risk_level":"medium"}}
+{"filename":"invoice_zenith.txt","expected_fields":{"document_type":"invoice","vendor":"Zenith Office Supplies","amount":3875.5,"currency":"GBP"}}
+{"filename":"policy_remote_work.txt","expected_fields":{"document_type":"policy","effective_date":"2026-02-01"}}
+{"filename":"report_q1_operations.txt","expected_fields":{"document_type":"report"}}
+{"filename":"invoice_brightwave.txt","expected_fields":{"document_type":"invoice","vendor":"Brightwave Media Ltd","amount":4200.0,"currency":"EUR"}}
+{"filename":"invoice_globex.txt","expected_fields":{"document_type":"invoice","vendor":"Globex Industrial Systems","amount":22000.0,"currency":"USD"}}
+{"filename":"invoice_meridian.txt","expected_fields":{"document_type":"invoice","vendor":"Meridian Facilities","amount":5640.0,"currency":"GBP"}}

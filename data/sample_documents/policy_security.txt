@@ -1,0 +1,9 @@
+SECURITY POLICY
+Company: Example Software Ltd
+Effective Date: 2026-03-01
+
+Policy:
+Staff accessing systems remotely must use multi-factor authentication and approved devices.
+
+Review:
+Access reviews are completed every three months by the Security team.

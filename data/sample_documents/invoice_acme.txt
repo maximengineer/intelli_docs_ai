@@ -1,0 +1,12 @@
+Invoice
+Vendor: Acme Analytics Ltd
+Invoice Date: 2026-01-15
+Due Date: 2026-02-14
+Total Amount: EUR 12,450.00
+
+Services:
+Data pipeline assessment and document automation implementation.
+
+Payment Terms:
+Payment is due within 30 days. Late payments may incur a late fee.
+

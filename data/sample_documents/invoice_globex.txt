@@ -1,0 +1,11 @@
+Invoice
+Vendor: Globex Industrial Systems
+Invoice Date: 2026-03-10
+Due Date: 2026-04-09
+Total Amount: USD 22,000.00
+
+Services:
+Warehouse automation hardware and installation.
+
+Payment Terms:
+Payment is due within 45 days. Late payments may incur a late fee.

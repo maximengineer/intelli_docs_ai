@@ -1,0 +1,9 @@
+EXPENSE POLICY
+Company: Example Software Ltd
+Effective Date: 2026-02-15
+
+Policy:
+Employees may claim reasonable travel and equipment expenses each month with manager approval.
+
+Limits:
+Single purchases above EUR 500 require finance approval before the purchase is made.

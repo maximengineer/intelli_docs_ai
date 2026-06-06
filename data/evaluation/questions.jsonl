@@ -1,0 +1,7 @@
+{"question_id":"q_001","question":"Which invoice is above 10,000 EUR?","expected_filenames":["invoice_acme.txt"],"expected_facts":["EUR 12,450.00"],"expected_response_type":"answer"}
+{"question_id":"q_002","question":"What are the renewal terms in the Northwind service agreement?","expected_filenames":["contract_northwind.txt"],"expected_facts":["Auto-renewal for successive one-year terms"],"expected_response_type":"answer"}
+{"question_id":"q_003","question":"Which vendor supplied ergonomic equipment?","expected_filenames":["invoice_zenith.txt"],"expected_facts":["Zenith Office Supplies"],"expected_response_type":"answer"}
+{"question_id":"q_004","question":"How many remote work days are allowed each week?","expected_filenames":["policy_remote_work.txt"],"expected_facts":["up to three days per week"],"expected_response_type":"answer"}
+{"question_id":"q_005","question":"What is the largest operational risk for Q2?","expected_filenames":["report_q1_operations.txt"],"expected_facts":["document automation backlog"],"expected_response_type":"answer"}
+{"question_id":"q_006","question":"What is the total amount on the Globex invoice?","expected_filenames":["invoice_globex.txt"],"expected_facts":["USD 22,000.00"],"expected_response_type":"answer"}
+{"question_id":"q_007","question":"What is the largest financial risk in Q2?","expected_filenames":["report_q2_finance.txt"],"expected_facts":["foreign currency exposure"],"expected_response_type":"answer"}

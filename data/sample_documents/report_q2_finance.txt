@@ -1,0 +1,12 @@
+Q2 FINANCE REPORT
+Company: Example Software Ltd
+Reporting Period: 2026 Q2
+
+Summary:
+Revenue grew 9 percent quarter over quarter driven by new enterprise accounts.
+
+Key Issue:
+The largest financial risk for Q2 is foreign currency exposure on overseas contracts.
+
+Action:
+Hedge currency exposure and review the largest vendor contracts before renewal.

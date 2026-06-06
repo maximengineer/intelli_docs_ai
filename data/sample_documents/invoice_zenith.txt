@@ -1,0 +1,12 @@
+Invoice
+Vendor: Zenith Office Supplies
+Invoice Date: 2026-04-05
+Due Date: 2026-05-05
+Total Amount: GBP 3,875.50
+
+Services:
+Office furniture, monitors, and ergonomic equipment for the Belfast team.
+
+Payment Terms:
+Payment is due within 30 days by bank transfer.
+

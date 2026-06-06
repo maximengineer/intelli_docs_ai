@@ -1,0 +1,13 @@
+Q1 OPERATIONS REPORT
+Company: Example Software Ltd
+Reporting Period: 2026 Q1
+
+Summary:
+Customer support response time improved by 18 percent after the new triage workflow launched.
+
+Key Issue:
+The document automation backlog remains the largest operational risk for Q2.
+
+Action:
+Hire one operations analyst and prioritise invoice processing automation before contract review automation.
+

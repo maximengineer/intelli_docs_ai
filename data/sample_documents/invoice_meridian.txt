@@ -1,0 +1,11 @@
+Invoice
+Vendor: Meridian Facilities
+Invoice Date: 2026-04-12
+Due Date: 2026-05-12
+Total Amount: GBP 5,640.00
+
+Services:
+Office furniture and standing desks for the Dublin team.
+
+Payment Terms:
+Payment is due within 30 days by bank transfer.

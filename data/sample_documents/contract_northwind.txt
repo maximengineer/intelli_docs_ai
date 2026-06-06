@@ -1,0 +1,11 @@
+SERVICE AGREEMENT
+Party: Northwind Retail Group
+Effective Date: 2026-03-01
+Renewal Terms: Auto-renewal for successive one-year terms unless either party gives 60 days notice.
+
+Scope:
+IntelliDocs AI will process synthetic business documents for demonstration and evaluation only.
+
+Risk:
+The agreement includes auto-renewal terms and a limitation of liability clause.
+

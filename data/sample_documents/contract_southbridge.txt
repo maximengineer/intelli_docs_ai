@@ -1,0 +1,10 @@
+SERVICE AGREEMENT
+Party: Southbridge Logistics Group
+Effective Date: 2026-01-20
+Renewal Terms: This agreement runs for a fixed one-year term and does not auto-renew.
+
+Scope:
+IntelliDocs AI will process synthetic shipping documents for demonstration only.
+
+Risk:
+The agreement includes standard terms and a routine limitation of liability.

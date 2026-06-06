@@ -1,0 +1,13 @@
+REMOTE WORK POLICY
+Company: Example Software Ltd
+Effective Date: 2026-02-01
+
+Policy:
+Employees may work remotely up to three days per week with manager approval.
+
+Security:
+Staff must use multi-factor authentication and approved company devices when accessing internal systems.
+
+Review:
+This policy is reviewed every 12 months by People Operations and Security.
+

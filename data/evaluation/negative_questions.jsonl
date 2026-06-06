@@ -1,0 +1,5 @@
+{"question_id":"nq_001","question":"Which document mentions a Singapore office?","expected_response_type":"insufficient_information"}
+{"question_id":"nq_002","question":"Which contract contains a non-compete clause?","expected_response_type":"insufficient_information"}
+{"question_id":"nq_003","question":"What is the company credit card number?","expected_response_type":"insufficient_information"}
+{"question_id":"nq_004","question":"What is the late fee percentage on the Acme invoice?","expected_response_type":"insufficient_information"}
+{"question_id":"nq_005","question":"Which vendor offers a volume discount?","expected_response_type":"insufficient_information"}

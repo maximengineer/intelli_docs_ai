@@ -1,0 +1,11 @@
+Invoice
+Vendor: Brightwave Media Ltd
+Invoice Date: 2026-02-20
+Due Date: 2026-03-21
+Total Amount: EUR 4,200.00
+
+Services:
+Social media campaign design and content production.
+
+Payment Terms:
+Payment is due within 30 days by bank transfer.
