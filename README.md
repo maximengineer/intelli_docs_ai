@@ -5,7 +5,7 @@ IntelliDocs AI is a production-style portfolio implementation for document intel
 The AI sits behind small adapter interfaces (`LLMClient`, `EmbeddingModel`):
 
 - **Generation / summarisation / extraction** → **OpenRouter** (one `OPENROUTER_API_KEY`, OpenAI-compatible, pick any chat model). Falls back to a deterministic extractive answerer with no key.
-- **Embeddings / retrieval** → **local `sentence-transformers`** by default: real semantic search that runs offline, costs nothing and keeps document text on your machine. Falls back to a zero-dependency hash embedder when the optional extra isn't installed.
+- **Embeddings / retrieval** → zero-dependency hash embeddings by default, with opt-in local `sentence-transformers` for real semantic search or OpenRouter embeddings when configured.
 
 Because of the fallbacks, the tests, CI and a key-less clone always run.
 
@@ -23,11 +23,14 @@ Upload documents -> extract facts -> ask questions -> get cited answers -> run e
 
 - FastAPI backend
 - Streamlit UI
+- asynchronous upload processing with document status polling
 - Pydantic schemas
 - TXT, DOCX and digital-native PDF parsing
 - LLM behind an adapter: OpenRouter (OpenAI-compatible) for generation/extraction/summaries, with a deterministic offline fallback
-- Embeddings behind an adapter: local `sentence-transformers` (default), OpenRouter embeddings, or a hash fallback; in-memory vector search with embeddings precomputed at upload
+- Embeddings behind an adapter: local `sentence-transformers`, OpenRouter embeddings, or a hash fallback; vector search with embeddings precomputed at upload
 - Backend-enforced citation mapping (validates the LLM-chosen indexes)
+- Phase 2 PostgreSQL/pgvector vector-store runtime path with Alembic migration
+- structured run metrics, lexical reranking, privacy text variants and extraction confidence gates
 - Pytest tests (LLM paths covered with a fake client — no real network calls); ruff-linted
 - Docker Compose
 
@@ -41,9 +44,16 @@ docker compose up --build
 Open:
 
 - API: `http://localhost:8000/health`
+- Readiness: `http://localhost:8000/ready`
 - UI: `http://localhost:8501`
 
 By default the app runs offline with no API key (hash embeddings + extractive answerer).
+
+Docker Compose runs the backend with `VECTOR_STORE_BACKEND=postgres`, backed by
+the `pgvector/pgvector:pg17` service, and forces `EMBEDDING_BACKEND=hash` so the
+container does not need a model download or optional torch install. Local
+`uvicorn` development defaults to `VECTOR_STORE_BACKEND=memory` unless you opt
+into Postgres in `.env`.
 
 **Real semantic retrieval (recommended, no key, offline):**
 
@@ -101,7 +111,7 @@ Current snapshot — **offline, no API key** (extractive answerer; `EMBEDDING_BA
   "citation_coverage": 1.0,
   "unsupported_answer_rejection_rate": 0.8,
   "extraction_field_accuracy": 1.0,
-  "average_latency_ms": 1.35
+  "average_latency_ms": 2.52
 }
 ```
 
@@ -111,14 +121,15 @@ Local semantic embeddings (`EMBEDDING_BACKEND=local`) score **identically** on t
 
 ## Architecture
 
-Phase 1 keeps the architecture intentionally small:
+The current implementation is Phase 2:
 
 ```text
-FastAPI upload -> parser -> extractor -> summarizer -> chunker -> embed at upload -> in-memory vector index
-Question -> retriever (embed query, cosine search) -> answer generator -> citation mapper -> API response
+FastAPI upload -> queued task -> parser -> privacy variants -> chunker
+  -> extract -> summarise -> embed at upload -> vector index
+Question -> retriever -> reranker -> answer generator -> citation mapper -> API response + metrics
 ```
 
-All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter or on deterministic offline fallbacks selected by config.
+All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter or on deterministic offline fallbacks selected by config. The default local development path remains in-memory for easy use; Docker/Phase 2 can run retrieval against PostgreSQL/pgvector with `VECTOR_STORE_BACKEND=postgres`.
 
 The citation mapper is the trust boundary. The generator only emits placeholders such as `<cite index="0">`; the backend validates each index against the retrieved context and maps it to real document ID, filename, page, section, chunk ID and snippet metadata. An out-of-range index (which a real model can produce) is rejected and downgraded to the insufficient-information fallback rather than shown.
 
@@ -129,14 +140,11 @@ plan-vs-reality deviations is in `docs/dev_log.md`.
 
 ## Future Improvements
 
-- asynchronous processing and document status endpoint
-- PostgreSQL with pgvector
-- reranking
-- structured logs with richer run metadata
-- privacy policy variants
-- extraction confidence hard gates
-- Alembic migrations
 - Streamlit-compatible verified streaming
+- Celery + Redis branch fan-out
+- support-check critic gate
+- richer evaluator-based answer quality scoring
+- production deployment notes
 
 ## Resume Bullets
 
