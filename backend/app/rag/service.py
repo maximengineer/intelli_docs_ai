@@ -7,10 +7,12 @@ import uuid
 from app.core.settings import get_settings
 from app.documents.service import get_document_service
 from app.llm.client import LLMClient, get_llm_client
+from app.observability.costs import TokenUsage, estimate_cost_usd, estimate_tokens
+from app.observability.run_logger import log_run_event
 from app.rag.citations import map_citations
 from app.rag.generator import FALLBACK_ANSWER, generate_answer_with_placeholders
 from app.rag.retriever import Retriever
-from app.rag.schemas import QARequest, QAResponse
+from app.rag.schemas import QAMetrics, QARequest, QAResponse, RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +26,54 @@ class QAService:
         started = time.perf_counter()
         run_id = "run_" + uuid.uuid4().hex[:16]
         try:
-            context = self.retriever.retrieve(request)
+            if self.llm_client is not None:
+                self.llm_client.pop_usage()  # clear any stale per-thread usage
+            retrieval = self.retriever.retrieve(request)
+            context = retrieval.context
             settings = get_settings()
-            if not context or context[0].score < settings.min_relevance_score:
-                return self._insufficient(run_id)
+            # Gate on the best raw-retrieval cosine, not the post-rerank ordering.
+            best_candidate_score = retrieval.candidates[0].score if retrieval.candidates else 0.0
+            if not context or best_candidate_score < settings.min_relevance_score:
+                metrics = self._metrics(
+                    run_id=run_id,
+                    started=started,
+                    question=request.question,
+                    context=context,
+                    candidates_retrieved=len(retrieval.candidates),
+                    answer=FALLBACK_ANSWER,
+                    citation_count=0,
+                )
+                return self._insufficient(run_id, metrics)
 
             draft = generate_answer_with_placeholders(request.question, context, self.llm_client)
             answer, sources, supported = map_citations(draft, context)
             if not supported or not sources:
-                return self._insufficient(run_id)
-            return QAResponse(run_id=run_id, answer=answer, status="success", sources=sources)
+                metrics = self._metrics(
+                    run_id=run_id,
+                    started=started,
+                    question=request.question,
+                    context=context,
+                    candidates_retrieved=len(retrieval.candidates),
+                    answer=FALLBACK_ANSWER,
+                    citation_count=0,
+                )
+                return self._insufficient(run_id, metrics)
+            metrics = self._metrics(
+                run_id=run_id,
+                started=started,
+                question=request.question,
+                context=context,
+                candidates_retrieved=len(retrieval.candidates),
+                answer=answer,
+                citation_count=len(sources),
+            )
+            return QAResponse(
+                run_id=run_id,
+                answer=answer,
+                status="success",
+                sources=sources,
+                metrics=metrics,
+            )
         except Exception as exc:
             logger.exception("qa_failed run_id=%s", run_id)
             return QAResponse(run_id=run_id, answer="", status="failed", sources=[], error=str(exc))
@@ -41,13 +81,51 @@ class QAService:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             logger.info("qa_completed run_id=%s latency_ms=%s", run_id, elapsed_ms)
 
+    def _metrics(
+        self,
+        *,
+        run_id: str,
+        started: float,
+        question: str,
+        context: list[RetrievedChunk],
+        candidates_retrieved: int,
+        answer: str,
+        citation_count: int,
+    ) -> QAMetrics:
+        settings = get_settings()
+        usage = self.llm_client.pop_usage() if self.llm_client is not None else None
+        if usage is None:
+            # No real provider usage (offline heuristic, or no LLM call this turn):
+            # fall back to a clearly-approximate word-count estimate.
+            input_text = question + "\n" + "\n".join(chunk.text for chunk in context)
+            usage = TokenUsage(
+                input_tokens=estimate_tokens(input_text),
+                output_tokens=estimate_tokens(answer),
+            )
+        model_name = settings.llm_model if self.llm_client is not None else "offline-heuristic"
+        metrics = QAMetrics(
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            candidates_retrieved=candidates_retrieved,
+            context_chunks_used=len(context),
+            citation_count=citation_count,
+            model_name=model_name,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            estimated_cost_usd=estimate_cost_usd(usage),
+            price_table_as_of=settings.price_table_as_of,
+            reranker_enabled=settings.reranker_enabled,
+        )
+        log_run_event(run_id=run_id, event="qa_metrics", **metrics.model_dump())
+        return metrics
+
     @staticmethod
-    def _insufficient(run_id: str) -> QAResponse:
+    def _insufficient(run_id: str, metrics: QAMetrics | None = None) -> QAResponse:
         return QAResponse(
             run_id=run_id,
             answer=FALLBACK_ANSWER,
             status="insufficient_information",
             sources=[],
+            metrics=metrics,
         )
 
 

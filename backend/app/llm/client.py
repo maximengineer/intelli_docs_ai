@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import threading
 from functools import lru_cache
 from typing import Protocol
 
 from app.core.settings import get_settings
+from app.observability.costs import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +23,41 @@ class LLMClient(Protocol):
     ) -> str:
         """Return a text completion from an LLM provider."""
 
+    def pop_usage(self) -> TokenUsage | None:
+        """Return and clear token usage recorded for the current thread, if any."""
+
+
+class LocalStubLLMClient:
+    """Deterministic test/demo adapter that echoes the prompt.
+
+    Used only as a typing-friendly placeholder. The production fallback path is
+    not this client but the deterministic heuristics in the documents/rag layers,
+    selected when ``get_llm_client`` returns ``None``.
+    """
+
+    def complete(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+    ) -> str:
+        del system, temperature, max_tokens, json_mode
+        return prompt
+
+    def pop_usage(self) -> TokenUsage | None:
+        return None
+
 
 class OpenRouterLLMClient:
     """OpenAI-compatible client pointed at OpenRouter.
 
     A single ``OPENROUTER_API_KEY`` unlocks chat completions across many model
-    providers. Timeouts and bounded retries are delegated to the OpenAI SDK.
+    providers. Timeouts and bounded retries are delegated to the OpenAI SDK. The
+    provider's real token usage from the most recent call is recorded per-thread
+    so callers can report actual (not estimated) cost.
     """
 
     def __init__(
@@ -50,6 +81,7 @@ class OpenRouterLLMClient:
         )
         self._model = model
         self._extra_headers = {"HTTP-Referer": referer, "X-Title": title}
+        self._local = threading.local()
 
     def complete(
         self,
@@ -77,7 +109,21 @@ class OpenRouterLLMClient:
             kwargs["response_format"] = {"type": "json_object"}
 
         response = self._client.chat.completions.create(**kwargs)
+        self._record_usage(getattr(response, "usage", None))
         return (response.choices[0].message.content or "").strip()
+
+    def _record_usage(self, usage: object | None) -> None:
+        if usage is None:
+            return
+        self._local.usage = TokenUsage(
+            input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        )
+
+    def pop_usage(self) -> TokenUsage | None:
+        usage = getattr(self._local, "usage", None)
+        self._local.usage = None
+        return usage
 
 
 @lru_cache
