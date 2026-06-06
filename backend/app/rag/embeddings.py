@@ -42,7 +42,12 @@ class HashEmbeddingModel:
     version = "0.1.0"
 
     def embed(self, text: str) -> list[float]:
-        dimension = get_settings().embedding_dimension
+        settings = get_settings()
+        dimension = (
+            settings.postgres_vector_dimension
+            if settings.vector_store_backend == "postgres"
+            else settings.embedding_dimension
+        )
         vector = [0.0] * dimension
         for token in WORD_RE.findall(text.lower()):
             digest = hashlib.sha256(token.encode("utf-8")).digest()

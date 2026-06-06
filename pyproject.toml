@@ -16,6 +16,9 @@ dependencies = [
   "streamlit==1.58.0",
   "requests==2.34.2",
   "openai>=2.41.0",
+  "SQLAlchemy>=2.0,<3.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "alembic>=1.17,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -55,8 +58,9 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "W"]
 
 [tool.ruff.lint.per-file-ignores]
-# Scripts bootstrap sys.path before importing the app package.
+# Scripts and Alembic env bootstrap sys.path before importing the app package.
 "scripts/*" = ["E402"]
+"migrations/*" = ["E402"]
 # FastAPI dependency-injection idiom: File()/Depends() in argument defaults.
 "backend/app/api/*" = ["B008"]
 # Optional-extra test imports after pytest.importorskip.

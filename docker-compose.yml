@@ -1,12 +1,36 @@
 services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: intellidocs
+      POSTGRES_USER: intellidocs
+      POSTGRES_PASSWORD: intellidocs
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intellidocs -d intellidocs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
+      EMBEDDING_BACKEND: hash
+      REQUIRE_DATABASE_READY: "true"
+      VECTOR_STORE_BACKEND: postgres
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     image: python:3.12-slim
@@ -22,3 +46,6 @@ services:
       - "8501:8501"
     depends_on:
       - backend
+
+volumes:
+  postgres_data:
