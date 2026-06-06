@@ -1,0 +1,11 @@
+name: summarize_document
+version: "0.1.0"
+purpose: Produce a concise business summary of an uploaded document.
+expected_output_schema: markdown_bullets
+template: |
+  Summarise the document in three short bullets:
+  - What this document is
+  - Key facts
+  - Risks or actions
+  Use only information present in the document.
+

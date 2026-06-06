@@ -1,0 +1,11 @@
+name: answer_question
+version: "0.1.0"
+purpose: Answer questions using retrieved document chunks with backend-mapped citation placeholders.
+expected_output_schema: cited_answer_text
+template: |
+  Answer the user question using only the provided context.
+  Cite supporting context with tags like <cite index="0">.
+  Do not invent filenames, document IDs, page numbers or chunk IDs.
+  If the context does not support an answer, say:
+  The available documents do not contain enough information to answer this question.
+

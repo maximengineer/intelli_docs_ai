@@ -1,0 +1,9 @@
+name: extract_fields
+version: "0.1.0"
+purpose: Extract key business fields from a document using a constrained schema.
+expected_output_schema: ExtractedFields
+template: |
+  Extract key fields from the provided document text.
+  Return only valid JSON matching the expected schema.
+  If a value is not present, use null or "unknown" where the schema requires an enum.
+
