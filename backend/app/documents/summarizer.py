@@ -40,7 +40,6 @@ def _summarize_with_heuristic(clean_text: str) -> str:
     leading = " ".join(sentences[:3]).strip()
     key_facts = "\n- Key facts: Review extracted fields for structured values." if leading else ""
     risks = (
-        "\n- Risks or actions: Validate important fields against the cited "
-        "source text before use."
+        "\n- Risks or actions: Validate important fields against the cited source text before use."
     )
     return "- What this document is: " + leading[:300] + key_facts + risks

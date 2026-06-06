@@ -40,12 +40,60 @@ class DocumentChunk(BaseModel):
     chunk_index: int
 
 
+DocumentStatus = Literal[
+    "uploaded",
+    "queued",
+    "parsing",
+    "privacy_processing",
+    "chunking",
+    "processing",
+    "completed",
+    "failed",
+]
+
+ProcessingStepName = Literal[
+    "parsing",
+    "privacy_processing",
+    "chunking",
+    "embedding",
+    "extracting",
+    "summarising",
+]
+
+ProcessingStepStatus = Literal["pending", "running", "completed", "failed"]
+
+
+class ProcessingStep(BaseModel):
+    name: ProcessingStepName
+    status: ProcessingStepStatus = "pending"
+    error: str | None = None
+
+
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    task_id: str
+    filename: str
+    status: DocumentStatus
+
+
+class DocumentStatusResponse(BaseModel):
+    document_id: str
+    filename: str
+    status: DocumentStatus
+    needs_review: bool = False
+    steps: list[ProcessingStep]
+    error: str | None = None
+
+
 class DocumentResponse(BaseModel):
     document_id: str
     filename: str
-    status: Literal["uploaded", "processing", "completed", "failed"]
+    status: DocumentStatus
     summary: str
     document_type: str
     extracted_fields: ExtractedFields
     chunk_count: int
+    needs_review: bool = False
+    extraction_confidence: float | None = None
+    privacy_policy_version: str | None = None
     error: str | None = None

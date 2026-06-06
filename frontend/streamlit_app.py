@@ -1,4 +1,5 @@
 import os
+import time
 
 import requests
 import streamlit as st
@@ -14,18 +15,46 @@ with st.sidebar:
         "Upload TXT, DOCX or digital-native PDF", type=["txt", "docx", "pdf"]
     )
     if uploaded_file and st.button("Process document", type="primary"):
-        with st.spinner("Processing document"):
+        with st.spinner("Uploading document"):
             response = requests.post(
                 f"{API_URL}/documents/upload",
                 files={"file": (uploaded_file.name, uploaded_file.getvalue())},
                 timeout=60,
             )
         if response.ok:
-            document = response.json()
-            st.session_state["document"] = document
-            st.success(f"Processed {document['filename']}")
+            upload = response.json()
+            st.session_state["document_upload"] = upload
+            st.session_state.pop("document", None)
+            st.success(f"Queued {upload['filename']}")
         else:
             st.error(response.json().get("detail", response.text))
+
+upload = st.session_state.get("document_upload")
+if upload and "document" not in st.session_state:
+    with st.spinner("Processing document"):
+        for _ in range(30):
+            status_response = requests.get(
+                f"{API_URL}/documents/{upload['document_id']}/status",
+                timeout=10,
+            )
+            if not status_response.ok:
+                st.error(status_response.text)
+                break
+            current_status = status_response.json()
+            if current_status["status"] == "completed":
+                document_response = requests.get(
+                    f"{API_URL}/documents/{upload['document_id']}",
+                    timeout=10,
+                )
+                if document_response.ok:
+                    st.session_state["document"] = document_response.json()
+                else:
+                    st.error(document_response.text)
+                break
+            if current_status["status"] == "failed":
+                st.error(current_status.get("error") or "Document processing failed")
+                break
+            time.sleep(0.5)
 
 document = st.session_state.get("document")
 if document:
@@ -34,6 +63,8 @@ if document:
     metric_cols[0].metric("Status", document["status"])
     metric_cols[1].metric("Type", document["document_type"])
     metric_cols[2].metric("Chunks", document["chunk_count"])
+    if document.get("needs_review"):
+        st.warning("Extraction completed with review recommended.")
 
     left, right = st.columns([1, 1])
     with left:
@@ -63,5 +94,15 @@ if st.button("Ask", disabled=not question):
                 st.caption(f"{source['filename']} | page {page} | {source['chunk_id']}")
                 st.write(source["snippet"])
         st.caption(f"run_id: {result['run_id']}")
+        if result.get("metrics"):
+            st.caption(
+                " | ".join(
+                    [
+                        f"latency: {result['metrics']['latency_ms']} ms",
+                        f"context: {result['metrics']['context_chunks_used']}",
+                        f"citations: {result['metrics']['citation_count']}",
+                    ]
+                )
+            )
     else:
         st.error(response.text)

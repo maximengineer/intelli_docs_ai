@@ -23,6 +23,22 @@ class Settings(BaseSettings):
     embedding_dimension: int = 256
     retrieval_top_k: int = 5
     min_relevance_score: float = 0.08
+    retrieval_candidate_k: int = Field(default=30, ge=1)
+    reranker_enabled: bool = True
+
+    # --- Phase 2 storage/readiness -----------------------------------------
+    database_url: str | None = None
+    require_database_ready: bool = False
+    vector_store_backend: Literal["memory", "postgres"] = "memory"
+    postgres_vector_dimension: int = 1536
+    postgres_vector_distance_metric: str = "cosine"
+    postgres_vector_operator_class: str = "vector_cosine_ops"
+    postgres_vector_index_type: str = "hnsw"
+
+    # --- Phase 2 cost estimation ------------------------------------------
+    price_table_as_of: str = "2026-06-06"
+    llm_input_price_per_1m_tokens: float = 0.0
+    llm_output_price_per_1m_tokens: float = 0.0
 
     # --- LLM provider (OpenRouter, OpenAI-compatible) -----------------------
     # Generation/summarisation/extraction use the model only when enable_llm is
