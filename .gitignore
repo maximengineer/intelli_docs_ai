@@ -1,12 +1,14 @@
+.claude/
+.pytest_cache/
+.ruff_cache
+.uv-cache/
+.venv/
 advanced/
+.env
 AGENTS.md
 CLAUDE.md
 intellidocs_ai_implementation_guide.md
 intellidocs_ai_project_plan.md
-.venv/
-.uv-cache/
 __pycache__/
-.pytest_cache/
-.env
 *.pyc
 
