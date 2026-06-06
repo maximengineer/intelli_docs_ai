@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
+
+# Deterministic by default: force the offline path so the committed numbers are
+# reproducible and the script never makes paid LLM calls. Pass --use-llm to
+# evaluate the real OpenRouter + embedding path configured in .env. Must run
+# before importing the app so the cached settings/singletons pick it up.
+USE_LLM = "--use-llm" in sys.argv
+if not USE_LLM:
+    os.environ["ENABLE_LLM"] = "false"
+    os.environ["EMBEDDING_BACKEND"] = "hash"
+    os.environ["VECTOR_STORE_BACKEND"] = "memory"
 
 from app.core.settings import get_settings
 from app.documents.service import DocumentService
@@ -45,7 +56,7 @@ def main() -> None:
             for filename in row.get("expected_filenames", [])
             if filename in filename_to_doc_id
         ]
-        retrieved = qa_service.retriever.retrieve(QARequest(question=row["question"]))
+        retrieved = qa_service.retriever.retrieve(QARequest(question=row["question"])).context
         if expected_document_ids:
             document_hit_scores.append(document_hit_at_k(retrieved, expected_document_ids, 5))
         response = qa_service.answer(QARequest(question=row["question"]))

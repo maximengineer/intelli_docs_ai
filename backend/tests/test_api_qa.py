@@ -21,6 +21,8 @@ def test_upload_then_qa_returns_cited_answer() -> None:
     assert response.run_id.startswith("run_")
     assert response.sources
     assert response.sources[0].filename == "invoice.txt"
+    assert response.metrics is not None
+    assert response.metrics.candidates_retrieved >= response.metrics.context_chunks_used
 
 
 def test_unsupported_question_returns_fallback_without_sources() -> None:

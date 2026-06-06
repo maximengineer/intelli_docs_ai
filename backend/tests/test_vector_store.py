@@ -1,3 +1,4 @@
+from app.core.settings import get_settings
 from app.documents.schemas import DocumentChunk
 from app.rag.embeddings import HashEmbeddingModel
 from app.rag.vector_store import InMemoryVectorStore
@@ -90,3 +91,16 @@ def test_embeddings_are_precomputed_once_at_index_time() -> None:
     # Only the two queries are embedded; stored chunk vectors are reused.
     assert counter.batch_calls == 1
     assert counter.single_calls == 2
+
+
+def test_hash_embedding_matches_pgvector_dimension_in_postgres_mode(monkeypatch) -> None:
+    monkeypatch.setenv("VECTOR_STORE_BACKEND", "postgres")
+    monkeypatch.setenv("POSTGRES_VECTOR_DIMENSION", "1536")
+    get_settings.cache_clear()
+
+    try:
+        vector = HashEmbeddingModel().embed("invoice total amount")
+    finally:
+        get_settings.cache_clear()
+
+    assert len(vector) == 1536

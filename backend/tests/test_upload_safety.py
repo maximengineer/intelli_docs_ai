@@ -2,6 +2,7 @@ from io import BytesIO
 
 import pytest
 from app.api.routes_documents import upload_document
+from app.documents.service import get_document_service
 from fastapi import HTTPException, UploadFile, status
 from starlette.datastructures import Headers
 
@@ -28,5 +29,7 @@ def test_upload_accepts_allowed_text_mime_type() -> None:
 
     document = upload_document(file)
 
-    assert document.status == "completed"
+    assert document.status in {"queued", "completed"}
     assert document.filename == "invoice.txt"
+    status_response = get_document_service().get_status(document.document_id)
+    assert status_response is not None
