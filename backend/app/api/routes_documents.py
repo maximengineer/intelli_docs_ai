@@ -1,5 +1,4 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from starlette.concurrency import run_in_threadpool
 
 from app.core.settings import get_settings
 from app.documents.schemas import DocumentResponse
@@ -12,7 +11,7 @@ _AMBIGUOUS_MIME_TYPES = {"application/octet-stream", ""}
 
 
 @router.post("/upload", response_model=DocumentResponse)
-async def upload_document(file: UploadFile = File(...)) -> DocumentResponse:
+def upload_document(file: UploadFile = File(...)) -> DocumentResponse:
     settings = get_settings()
     service = get_document_service()
 
@@ -28,7 +27,7 @@ async def upload_document(file: UploadFile = File(...)) -> DocumentResponse:
 
     # Read at most one byte past the limit so an oversized upload is rejected
     # without buffering the whole file into memory.
-    content = await file.read(settings.max_upload_bytes + 1)
+    content = file.file.read(settings.max_upload_bytes + 1)
     if len(content) > settings.max_upload_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -36,12 +35,7 @@ async def upload_document(file: UploadFile = File(...)) -> DocumentResponse:
         )
 
     try:
-        # Parsing/embedding is blocking; keep it off the event loop.
-        return await run_in_threadpool(
-            service.upload,
-            filename=file.filename or "document.txt",
-            content=content,
-        )
+        return service.upload(filename=file.filename or "document.txt", content=content)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

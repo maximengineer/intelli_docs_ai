@@ -1,4 +1,3 @@
-import asyncio
 from io import BytesIO
 
 import pytest
@@ -15,7 +14,7 @@ def test_upload_rejects_unsupported_mime_type() -> None:
     )
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(upload_document(file))
+        upload_document(file)
 
     assert exc.value.status_code == status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
 
@@ -27,7 +26,7 @@ def test_upload_accepts_allowed_text_mime_type() -> None:
         headers=Headers({"content-type": "text/plain"}),
     )
 
-    document = asyncio.run(upload_document(file))
+    document = upload_document(file)
 
     assert document.status == "completed"
     assert document.filename == "invoice.txt"

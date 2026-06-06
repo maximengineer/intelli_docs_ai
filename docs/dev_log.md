@@ -6,6 +6,28 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-06 — Hermetic Phase 2 readiness gate
+
+**Context.** Before starting Phase 2, the Phase 1 verification gate needed to
+run cleanly in a restricted/offline development environment.
+
+**Changes.**
+- `routes_documents.py`: made the Phase 1 upload endpoint synchronous. This
+  matches the current synchronous processing model and avoids an async
+  `UploadFile`/threadpool test hang under the current dependency stack.
+- `test_upload_safety.py`: calls the route directly without an async harness.
+- `SentenceTransformerEmbeddingModel`: added `local_files_only` support.
+- `test_local_embeddings.py`: skips the semantic embedding test unless the
+  Hugging Face model is already cached locally, so the suite never attempts a
+  network download.
+
+**Tests / verification.**
+- `ENABLE_LLM=false EMBEDDING_BACKEND=hash uv run pytest`: **24 passed**.
+- `ENABLE_LLM=false EMBEDDING_BACKEND=hash uv run python scripts/run_evaluation.py`:
+  hit@5 1.0 · citation 1.0 · rejection 0.8 · extraction 1.0.
+
+---
+
 ## 2026-06-06 — OpenRouter LLM + local semantic embeddings, hardening & polish
 
 **Context.** Wired a real provider in (the prior round left the LLM/embedding

@@ -11,12 +11,20 @@ import pytest
 pytest.importorskip("sentence_transformers")
 
 from app.rag.embeddings import SentenceTransformerEmbeddingModel, cosine_similarity
+from huggingface_hub import try_to_load_from_cache
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def test_local_embeddings_are_normalized_and_semantic() -> None:
-    model = SentenceTransformerEmbeddingModel(MODEL_NAME)
+    if try_to_load_from_cache(MODEL_NAME, "config.json") is None:
+        pytest.skip(f"{MODEL_NAME} is not cached locally; skipping network-dependent test")
+
+    try:
+        model = SentenceTransformerEmbeddingModel(MODEL_NAME, local_files_only=True)
+    except Exception as exc:
+        pytest.skip(f"{MODEL_NAME} is not fully cached locally: {exc}")
+
     docs = model.embed_batch(
         [
             "The invoice total amount is EUR 12,450.",

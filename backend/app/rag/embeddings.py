@@ -62,10 +62,10 @@ class SentenceTransformerEmbeddingModel:
     torch). The model is downloaded once on first use and cached on disk.
     """
 
-    def __init__(self, model_name: str) -> None:
+    def __init__(self, model_name: str, *, local_files_only: bool = False) -> None:
         from sentence_transformers import SentenceTransformer  # heavy, optional
 
-        self._model = SentenceTransformer(model_name)
+        self._model = SentenceTransformer(model_name, local_files_only=local_files_only)
         self.name = f"sentence-transformers:{model_name}"
 
     def embed(self, text: str) -> list[float]:
