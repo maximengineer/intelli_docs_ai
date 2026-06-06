@@ -1,0 +1,10 @@
+import os
+
+# Keep the suite hermetic: never touch the network or a real provider, even when
+# a populated .env is present. Environment variables take precedence over .env in
+# pydantic-settings, and this runs before any app import (so cached settings see
+# it), which forces the deterministic offline path:
+#   - ENABLE_LLM=false       -> generation/extraction/summary use heuristics
+#   - EMBEDDING_BACKEND=hash  -> retrieval uses the local hash embedder
+os.environ["ENABLE_LLM"] = "false"
+os.environ["EMBEDDING_BACKEND"] = "hash"
