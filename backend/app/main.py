@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes_documents import router as documents_router
+from app.api.routes_evaluation import router as evaluation_router
 from app.api.routes_health import router as health_router
 from app.api.routes_qa import router as qa_router
 from app.core.logging import configure_logging
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(documents_router)
     app.include_router(qa_router)
+    app.include_router(evaluation_router)
     return app
 
 
