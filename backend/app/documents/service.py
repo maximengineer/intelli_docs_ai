@@ -37,6 +37,7 @@ from app.storage.repositories import DocumentRepository, build_document_reposito
 from app.storage.upload_store import LocalUploadStore, get_upload_store
 
 logger = logging.getLogger(__name__)
+_DEFAULT_LLM_CLIENT = object()
 
 
 class DocumentSubmissionError(RuntimeError):
@@ -57,7 +58,7 @@ class PreparedDocument:
 class DocumentService:
     def __init__(
         self,
-        llm_client: LLMClient | None = None,
+        llm_client: LLMClient | None | object = _DEFAULT_LLM_CLIENT,
         vector_store: VectorStore | None = None,
         repository: DocumentRepository | None = None,
         upload_store: LocalUploadStore | None = None,
@@ -66,7 +67,9 @@ class DocumentService:
         self._task_errors: dict[str, str] = {}
         self._task_futures: dict[str, Future[DocumentResponse]] = {}
         self._lock = Lock()
-        self._llm_client = llm_client if llm_client is not None else get_llm_client()
+        self._llm_client = (
+            get_llm_client() if llm_client is _DEFAULT_LLM_CLIENT else llm_client
+        )
         self._vector_store = vector_store or _build_vector_store()
         self._repository = repository or build_document_repository()
         self._upload_store = upload_store or get_upload_store()

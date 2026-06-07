@@ -20,6 +20,14 @@ offline evaluator is not a benchmark; it is a smoke test for the demo contract.
 
 ## Running
 
+Docker-first path:
+
+```bash
+make eval
+```
+
+Local iteration path:
+
 ```bash
 ENABLE_LLM=false EMBEDDING_BACKEND=hash VECTOR_STORE_BACKEND=memory uv run python scripts/run_evaluation.py
 ```
@@ -38,6 +46,28 @@ sample evaluation documents do not pollute the main document store. Run metadata
 and final results are persisted to Postgres when durable state is enabled, so
 `GET /evaluation/{evaluation_id}` can retrieve completed runs after the worker
 thread finishes.
+
+## Current Snapshot
+
+Measured on 2026-06-07 with Python 3.13, no API key, hash embeddings and the
+deterministic extractive answerer:
+
+```json
+{
+  "embedding_backend": "hash",
+  "llm_enabled": false,
+  "documents_loaded": 13,
+  "document_hit_at_5": 1.0,
+  "citation_coverage": 1.0,
+  "unsupported_answer_rejection_rate": 0.8,
+  "support_check_pass_rate": 1.0,
+  "extraction_field_accuracy": 1.0
+}
+```
+
+Latency is intentionally omitted from the stable snapshot because it varies by
+host, container cache and CPU load. The current measured value is shown in the
+script output when `make eval` runs.
 
 ## Current Limitation
 

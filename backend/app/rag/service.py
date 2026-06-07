@@ -16,6 +16,7 @@ from app.rag.retriever import Retriever
 from app.rag.schemas import QAMetrics, QARequest, QAResponse, RetrievedChunk
 
 logger = logging.getLogger(__name__)
+_DEFAULT_LLM_CLIENT = object()
 
 
 def new_run_id() -> str:
@@ -23,9 +24,13 @@ def new_run_id() -> str:
 
 
 class QAService:
-    def __init__(self, retriever: Retriever, llm_client: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        retriever: Retriever,
+        llm_client: LLMClient | None | object = _DEFAULT_LLM_CLIENT,
+    ) -> None:
         self.retriever = retriever
-        self.llm_client = llm_client if llm_client is not None else get_llm_client()
+        self.llm_client = get_llm_client() if llm_client is _DEFAULT_LLM_CLIENT else llm_client
 
     def answer(self, request: QARequest, run_id: str | None = None) -> QAResponse:
         started = time.perf_counter()

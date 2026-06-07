@@ -6,6 +6,155 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-07 — Phase 5 review fixes
+
+**Context.** A critical review of the first Phase 5 pass found no blockers, but
+it did find reviewer-experience issues: sample questions were broader than the
+document upload walkthrough, stream status labels sounded more precise than the
+implementation, phase labels still said Phase 4 and README committed a
+host-dependent latency number.
+
+**Changes.**
+- Scoped Streamlit sample-question buttons to the two uploaded walkthrough
+  documents plus one unsupported question.
+- Added sample-question captions so reviewers know which upload each question
+  expects.
+- Replaced fixed processing progress with progress derived from completed and
+  running processing steps/branches.
+- Renamed Q&A stream status events to generic verified-answer progress labels.
+- Updated README and architecture docs from Phase 4 to Phase 5 in progress.
+- Removed precise latency from the README's stable evaluation snapshot.
+- Clarified in the demo script that the broader corpus is exercised by the
+  evaluation command.
+
+**Tests / verification.**
+- `uv run ruff check .`: passed.
+- `uv run pytest`: **59 passed, 2 skipped** on Python `3.13.13`.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `document_hit_at_5=1.0`, `citation_coverage=1.0`,
+  `unsupported_answer_rejection_rate=0.8`,
+  `support_check_pass_rate=1.0`, `extraction_field_accuracy=1.0`,
+  `average_latency_ms=8.0`.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-07 — Phase 5 demo polish start
+
+**Context.** Phase 5 is focused on making the finished IntelliDocs AI workflow
+easy to review rather than adding another infrastructure layer.
+
+**Changes.**
+- Improved the Streamlit demo:
+  - clearer document processing status with sequential steps and parallel AI
+    branches
+  - visible extraction confidence
+  - readable extracted fields table
+  - clickable sample questions
+  - clearer insufficient-information display with no misleading sources
+  - expandable source citations with page, section, chunk and snippet metadata
+- Rewrote `docs/demo_script.md` around the Docker-first reviewer path.
+- Added `docs/resume_bullets.md` with CV-ready bullets tied to implemented
+  behavior.
+- Linked the demo script and resume bullets from the README.
+- Added a dated evaluation snapshot section to `docs/evaluation.md`.
+- Fixed offline evaluation forcing so explicit `llm_client=None` means
+  deterministic offline fallback, while omitted clients still use configured
+  providers.
+- Pinned offline CLI evaluation environment before app imports, preventing `.env`
+  live-provider settings from causing network attempts during the default
+  evaluation command.
+
+**Tests / verification.**
+- `uv run ruff check .`: passed.
+- `uv run pytest`: **59 passed, 2 skipped** on Python `3.13.13`.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `document_hit_at_5=1.0`, `citation_coverage=1.0`,
+  `unsupported_answer_rejection_rate=0.8`,
+  `support_check_pass_rate=1.0`, `extraction_field_accuracy=1.0`,
+  `average_latency_ms=8.38`.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-07 — Python 3.13 runtime and dependency refresh
+
+**Context.** A dependency review found that Docker Compose was still using
+Redis 7 and pgvector's Postgres 17 image even though Redis 8 and Postgres 18
+tags are available. Backend dependency ranges also allowed older package
+versions than the current lockfile resolved. The project also still declared
+Python `>=3.12`, causing `uv.lock` to resolve unnecessary 3.12 and future 3.14
+wheel splits instead of targeting the intended Python 3.13 runtime.
+
+**Changes.**
+- Standardised the project on Python 3.13:
+  - `pyproject.toml` now requires `>=3.13,<3.14`.
+  - `uv.lock` now records `requires-python = "==3.13.*"`.
+  - Ruff targets `py313`.
+  - Backend and frontend Docker images use `python:3.13-slim`.
+  - Added `.python-version` with `3.13.13` for pyenv/uv local consistency.
+- Updated Docker Compose runtime services to `redis:8.4-alpine` and
+  `pgvector/pgvector:pg18`.
+- Updated the Postgres named-volume mount to `/var/lib/postgresql`, which is
+  required by the Postgres 18 Docker image layout.
+- Replaced broad backend dependency ranges with current exact PyPI pins for
+  SQLAlchemy, psycopg, Alembic and Celery.
+- Kept the Python Redis client at `redis==6.4.0`, the latest version compatible
+  with `celery[redis]==5.6.3` / Kombu's current `<6.5` Redis client constraint.
+- Pinned optional/dev dependencies to current releases:
+  `sentence-transformers==5.5.1` and `ruff==0.15.16`.
+- Updated matching `pyproject.toml`, `uv.lock` and README references.
+
+**Tests / verification.**
+- Verified current PyPI versions and Docker Hub tags before editing.
+- `uv lock` used CPython `3.13.13` and regenerated the lockfile.
+- `uv lock --check`: passed.
+- `uv run python --version`: `Python 3.13.13`.
+- `uv run ruff check .`: passed.
+- `uv run pytest`: **58 passed, 2 skipped** on Python `3.13.13`.
+- `docker compose config --quiet`: passed.
+- `docker compose pull redis postgres`: pulled `redis:8.4-alpine` and
+  `pgvector/pgvector:pg18` successfully.
+- `docker compose build backend frontend`: built both Python `3.13-slim` images
+  successfully.
+- Container import checks passed for backend and frontend on Python `3.13.13`.
+- Rebuilt the Docker `tests` image and ran `pytest`: **58 passed, 2 skipped**
+  on Python `3.13.13`.
+- Verified Redis 8 and Postgres 18 become healthy in a fresh Compose project
+  with the corrected Postgres 18 volume mount.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-07 — Implementation guide numbering cleanup
+
+**Context.** The implementation guide mixed phase headings with a separate
+numbered outline, which made `## 4. Phase 1 API Design` look like Phase 4 even
+though the real Phase 4 section was earlier in the document.
+
+**Changes.**
+- Made the phases the primary top-level sections:
+  - `## 1. Phase 1: Working AI Product`
+  - `## 2. Phase 2: Senior Engineering Proof`
+  - `## 3. Phase 3: Production-Style Hardening`
+  - `## 4. Phase 4: Durable Async Workflow`
+- Added `## 5. Phase 5: Demo Polish And Portfolio Readiness`.
+- Moved Docker/runtime guidance after the phase roadmap as `## 6. Docker-First Runtime
+  And Testing`.
+- Renamed the old `## 4. Phase 1 API Design` area to `## 7. API Contracts`.
+- Moved API subsections under `7.1`, `7.2` and `7.3`.
+- Renumbered the later technical reference sections so the outline is
+  sequential and no longer collides with phase numbering.
+- Numbered `###` subsections with their parent section prefix (`1.1`, `4.1`,
+  `20.1`, etc.).
+- Scanned project docs for stale references to the old section numbers.
+- Added matching Phase 5 scope to the project plan.
+
+**Tests / verification.**
+- Documentation-only change; heading scan verified the new outline.
+
+---
+
 ## 2026-06-07 — Phase 1-4 readiness review fixes
 
 **Context.** A final pre-Phase 5 review found mostly operational rough edges:

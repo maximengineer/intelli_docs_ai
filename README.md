@@ -19,6 +19,8 @@ Business teams often need to review invoices, contracts, policies and reports ma
 Upload documents -> extract facts -> ask questions -> get cited answers -> run evaluation
 ```
 
+For a literal reviewer walkthrough, see `docs/demo_script.md`.
+
 ## Tech Stack
 
 - FastAPI backend
@@ -60,11 +62,17 @@ BACKEND_PORT=18000 FRONTEND_PORT=18501 make up
 By default the app runs offline with no API key (hash embeddings + extractive answerer).
 
 Docker Compose runs the backend with `VECTOR_STORE_BACKEND=postgres`, backed by
-the `pgvector/pgvector:pg17` service, and forces `EMBEDDING_BACKEND=hash` so the
+the `pgvector/pgvector:pg18` service, and forces `EMBEDDING_BACKEND=hash` so the
 container does not need a model download or optional torch install. In this mode
 document metadata, summaries, extracted fields, processing status, chunks and
 evaluation runs are durable in Postgres. Local `uvicorn` development defaults to
 `VECTOR_STORE_BACKEND=memory` unless you opt into Postgres in `.env`.
+
+Postgres 18 stores data under a versioned subdirectory, so Compose mounts the
+named volume at `/var/lib/postgresql`. If you previously ran the project with
+the old Postgres 17 volume layout, start from a fresh demo volume or perform a
+proper `pg_upgrade`; do not expect a pg17 data directory to boot directly as
+pg18.
 
 The frontend is also built as a Docker image, so Streamlit dependencies are
 installed at build time rather than on every container start.
@@ -176,7 +184,13 @@ UV_CACHE_DIR=.uv-cache INTELLIDOCS_API_URL=http://127.0.0.1:8000 uv run streamli
 
 ## Evaluation
 
-Run:
+Run in Docker:
+
+```bash
+make eval
+```
+
+Run locally for faster iteration:
 
 ```bash
 uv run python scripts/run_evaluation.py
@@ -184,7 +198,8 @@ uv run python scripts/run_evaluation.py
 
 The evaluation set is intentionally adversarial: 13 documents including keyword-overlapping distractors (multiple invoices, two service agreements, an operational vs. a financial Q2 report) so retrieval has to discriminate, plus negative questions whose keywords appear in the corpus but whose specific facts do not.
 
-Current snapshot — **offline, no API key** (extractive answerer; `EMBEDDING_BACKEND=hash`):
+Current snapshot — **2026-06-07, offline, no API key** (Python 3.13,
+extractive answerer; `EMBEDDING_BACKEND=hash`):
 
 ```json
 {
@@ -195,18 +210,19 @@ Current snapshot — **offline, no API key** (extractive answerer; `EMBEDDING_BA
   "citation_coverage": 1.0,
   "unsupported_answer_rejection_rate": 0.8,
   "support_check_pass_rate": 1.0,
-  "extraction_field_accuracy": 1.0,
-  "average_latency_ms": 3.79
+  "extraction_field_accuracy": 1.0
 }
 ```
 
 The `0.8` rejection rate is real and instructive: the offline lexical answerer is fooled by one keyword-dense but unanswerable question (*"What is the late fee percentage on the Acme invoice?"* — the invoice mentions a late fee but never a percentage). The LLM-backed path (`ENABLE_LLM=true`) is designed to refuse these, but its numbers are not committed here because they require an API key and are non-deterministic.
 
+Latency is host-dependent; rerun `make eval` for the current local value.
+
 Local semantic embeddings (`EMBEDDING_BACKEND=local`) score **identically** on this set (only latency changes, ~18 ms). That is expected, not a bug: these questions share literal keywords with their answer docs, so lexical retrieval already finds them, and the offline answerer is lexical in both runs. The semantic advantage shows up where this offline eval can't reach it — on paraphrased queries with no shared keywords (proven by `test_local_embeddings`) and in *answering* once the LLM is enabled. These are local demo measurements, not benchmark claims.
 
 ## Architecture
 
-The current implementation is Phase 4:
+The current implementation is Phase 5 in progress:
 
 ```text
 FastAPI upload -> durable upload store -> queued thread/Celery task
@@ -237,3 +253,5 @@ plan-vs-reality deviations is in `docs/dev_log.md`.
 - Designed a provider-adapter layer (OpenRouter, OpenAI-compatible) with deterministic offline fallbacks, so summaries, extraction and cited answers run with or without an API key and tests use a mocked client.
 - Implemented backend-verified citation mapping that validates LLM-chosen indexes against retrieved context, preventing citation hallucination, with an insufficient-information fallback for unsupported questions.
 - Created an adversarial offline evaluation (distractor documents, keyword-overlapping negatives) measuring retrieval hit-rate, citation coverage, unsupported-answer rejection and extraction accuracy — reporting real, non-perfect numbers.
+
+More detailed CV-ready bullets are in `docs/resume_bullets.md`.

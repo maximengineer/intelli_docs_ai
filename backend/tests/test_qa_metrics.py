@@ -1,4 +1,5 @@
 from app.core.settings import get_settings
+from app.documents.service import DocumentService
 from app.observability.costs import TokenUsage
 from app.rag.retriever import RetrievalResult
 from app.rag.schemas import QARequest, RetrievedChunk
@@ -66,6 +67,20 @@ def test_qa_metrics_fall_back_to_estimate_without_provider_usage() -> None:
     # Word-count approximation is positive; model is flagged as offline.
     assert response.metrics.input_tokens > 0
     assert response.metrics.model_name == "offline-heuristic"
+
+
+def test_explicit_none_disables_default_llm_clients(monkeypatch) -> None:
+    def fail_if_called() -> None:
+        raise AssertionError("provider client should not be initialized")
+
+    monkeypatch.setattr("app.rag.service.get_llm_client", fail_if_called)
+    monkeypatch.setattr("app.documents.service.get_llm_client", fail_if_called)
+
+    qa_service = QAService(_FakeRetriever([_chunk()]), llm_client=None)
+    document_service = DocumentService(llm_client=None)
+
+    assert qa_service.llm_client is None
+    assert document_service._llm_client is None
 
 
 def test_qa_metrics_label_heuristic_when_provider_is_not_active(monkeypatch) -> None:
