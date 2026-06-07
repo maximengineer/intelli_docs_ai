@@ -30,7 +30,8 @@ Upload documents -> extract facts -> ask questions -> get cited answers -> run e
 - Embeddings behind an adapter: local `sentence-transformers`, OpenRouter embeddings, or a hash fallback; vector search with embeddings precomputed at upload
 - Backend-enforced citation mapping (validates the LLM-chosen indexes)
 - PostgreSQL/pgvector vector-store runtime path with Alembic migration
-- Celery/Redis worker scaffold with branch-level document status
+- durable document state in PostgreSQL with a feature-flagged Celery/Redis
+  processing path
 - Streamlit-compatible verified Q&A streaming
 - support-check gate, structured run metrics, lexical reranking, privacy text variants and extraction confidence gates
 - Pytest tests (LLM paths covered with a fake client — no real network calls); ruff-linted
@@ -60,9 +61,10 @@ By default the app runs offline with no API key (hash embeddings + extractive an
 
 Docker Compose runs the backend with `VECTOR_STORE_BACKEND=postgres`, backed by
 the `pgvector/pgvector:pg17` service, and forces `EMBEDDING_BACKEND=hash` so the
-container does not need a model download or optional torch install. Local
-`uvicorn` development defaults to `VECTOR_STORE_BACKEND=memory` unless you opt
-into Postgres in `.env`.
+container does not need a model download or optional torch install. In this mode
+document metadata, summaries, extracted fields, processing status, chunks and
+evaluation runs are durable in Postgres. Local `uvicorn` development defaults to
+`VECTOR_STORE_BACKEND=memory` unless you opt into Postgres in `.env`.
 
 The frontend is also built as a Docker image, so Streamlit dependencies are
 installed at build time rather than on every container start.
@@ -89,10 +91,17 @@ Check Alembic SQL generation inside Docker:
 make alembic-sql
 ```
 
+Run the opt-in Celery/Postgres integration test against a Docker stack:
+
+```bash
+make celery-integration-test
+```
+
 The `tests` service does not load `.env`; it forces deterministic offline
 settings (`ENABLE_LLM=false`, `EMBEDDING_BACKEND=hash`,
 `VECTOR_STORE_BACKEND=memory`) so API keys and host-specific settings do not
-affect test behavior.
+affect test behavior. The Celery integration target is separate because it
+starts the distributed Docker path and is slower than the hermetic gate.
 
 Run a live provider smoke test inside Docker:
 
@@ -114,6 +123,21 @@ deterministic than the offline test suite.
 
 Run `make help` for all Docker workflow commands, including logs, status,
 shutdown and Compose config validation.
+
+The default upload processor is the simpler thread worker:
+
+```bash
+DOCUMENT_PROCESSING_BACKEND=thread make up
+```
+
+To exercise real Celery dispatch through Redis:
+
+```bash
+DOCUMENT_PROCESSING_BACKEND=celery ENABLE_LLM=false make up
+```
+
+Celery mode requires `VECTOR_STORE_BACKEND=postgres` and passes only a storage
+key/document ID through Redis, not raw upload bytes.
 
 **Real semantic retrieval (recommended, no key, offline):**
 
@@ -182,15 +206,17 @@ Local semantic embeddings (`EMBEDDING_BACKEND=local`) score **identically** on t
 
 ## Architecture
 
-The current implementation is Phase 3:
+The current implementation is Phase 4:
 
 ```text
-FastAPI upload -> queued task -> parser -> privacy variants -> chunker
-  -> extract -> summarise -> embed at upload -> branch status -> vector index
+FastAPI upload -> durable upload store -> queued thread/Celery task
+  -> parser -> privacy variants -> chunker
+  -> branch status -> extract + summarise + embed
+  -> aggregate durable document state -> vector index
 Question -> retriever -> reranker -> answer generator -> citation mapper -> support gate -> API response + metrics
 ```
 
-All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter or on deterministic offline fallbacks selected by config. The default local development path remains in-memory for easy use; Docker can run retrieval against PostgreSQL/pgvector with `VECTOR_STORE_BACKEND=postgres`.
+All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter or on deterministic offline fallbacks selected by config. The default local development path remains in-memory for easy use; Docker runs the durable path against PostgreSQL/pgvector with `VECTOR_STORE_BACKEND=postgres`.
 
 The citation mapper is the trust boundary. The generator only emits placeholders such as `<cite index="0">`; the backend validates each index against the retrieved context and maps it to real document ID, filename, page, section, chunk ID and snippet metadata. An out-of-range index (which a real model can produce) is rejected and downgraded to the insufficient-information fallback rather than shown.
 
@@ -201,11 +227,9 @@ plan-vs-reality deviations is in `docs/dev_log.md`.
 
 ## Future Improvements
 
-- durable document metadata outside process memory
-- durable evaluation history outside process memory
-- real Celery upload dispatch after durable document state exists
 - richer evaluator-based answer quality scoring
 - optional Langfuse/Phoenix integration
+- hosted deployment automation
 
 ## Resume Bullets
 

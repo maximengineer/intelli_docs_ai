@@ -32,8 +32,12 @@ GET  /evaluation/{evaluation_id} -> {status, result}
 ```
 
 The API run is always forced offline (deterministic, no paid LLM calls), since
-the endpoint is unauthenticated. Results are held in memory for the process
-lifetime; a durable evaluation store is intentionally out of scope here.
+the endpoint is unauthenticated. The evaluation loop uses isolated in-memory
+document/vector storage even when the app is running in Docker/Postgres mode, so
+sample evaluation documents do not pollute the main document store. Run metadata
+and final results are persisted to Postgres when durable state is enabled, so
+`GET /evaluation/{evaluation_id}` can retrieve completed runs after the worker
+thread finishes.
 
 ## Current Limitation
 

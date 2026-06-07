@@ -6,6 +6,185 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-07 — Phase 1-4 readiness review fixes
+
+**Context.** A final pre-Phase 5 review found mostly operational rough edges:
+Docker readiness could over-report health, Celery readiness did not prove a
+worker was alive, the live smoke could dedupe on repeat runs, and a few paths
+needed cleanup before adding new scope.
+
+**Changes.**
+- Docker backend healthcheck now fails unless `/ready` returns JSON
+  `status=ready`.
+- `/ready` now rejects invalid Celery+memory configuration and checks for a
+  responding Celery worker when `DOCUMENT_PROCESSING_BACKEND=celery`.
+- Upload submission failures now return a structured `503` with `document_id`,
+  filename, failed status and error details.
+- Live provider smoke now uses unique synthetic document content and filename on
+  every run, so it cannot pass by hitting completed-document deduplication.
+- Streamlit document polling now waits longer and shows an explicit still-
+  processing message instead of silently stopping.
+- Shared parse/privacy/chunk preparation is now a single helper used by both the
+  sync/thread path and the Celery seed task path.
+- `make celery-integration-test` supports `KEEP_STACK=true` for users who do not
+  want the target to shut down an already-running Compose stack.
+- The hermetic Docker `tests` service no longer depends on Postgres/Redis.
+- Architecture docs now spell out the intentional runtime-schema/Alembic DDL
+  boundary.
+
+**Tests / verification.**
+- `uv run ruff check .`: passed.
+- `uv run ruff format --check .`: passed.
+- `uv run pytest`: **58 passed, 2 skipped**.
+- `make config`: passed.
+- `make config-all`: passed.
+- `make celery-integration-test`: **1 passed** in Docker Compose against
+  Redis/Celery/Postgres with worker-aware readiness.
+
+---
+
+## 2026-06-07 — Phase 1-4 review fixes
+
+**Context.** A cross-phase review found no local lint/test failures, but it did
+find durable-state and Docker/Celery reliability gaps that could hide behind the
+fast hermetic gate.
+
+**Changes.**
+- Forced offline evaluation now uses isolated in-memory document/vector storage
+  plus a temporary upload store, even when Docker/Postgres settings are active.
+- Reprocessing now clears stale branch `result_json` instead of preserving old
+  Celery branch outputs.
+- Celery dispatch failures now mark the document failed, record the error and
+  clean the upload blob instead of leaving a queued document behind.
+- `/ready` now checks Redis broker/result-backend TCP reachability when Celery
+  mode is enabled.
+- The Celery integration test uses unique content per run, so it cannot pass by
+  hitting completed-document deduplication.
+- Alembic migrations now tolerate schemas already self-created by the Docker
+  runtime path.
+- Cleaned stale port defaults, stale vector-store docs, upload content-hash keys,
+  status ordering and unused/dead cleanup helpers.
+
+**Tests / verification.**
+- `uv run ruff check .`: passed.
+- `uv run ruff format --check .`: passed.
+- `uv run pytest`: **54 passed, 2 skipped**.
+- `make celery-integration-test`: **1 passed** in Docker Compose against
+  Redis/Celery/Postgres, then the target shut the stack down.
+
+---
+
+## 2026-06-07 — Phase 4 critique fixes
+
+**Context.** Applied fixes from a follow-up critical review of Phase 4. The main
+finding was a race in the Celery upload path: the API initialized the document
+row, dispatched Celery, then initialized the row again to store the Celery task
+ID. If the worker started between dispatch and the second init, that second init
+could wipe worker-written `ai_text` and reset branch state.
+
+**Changes.**
+- Removed the destructive post-dispatch `init_document` call. The API now
+  initializes once before enqueue and records Celery's returned task ID through a
+  targeted repository update.
+- Restored sync `upload()` content-hash dedup by checking for a completed
+  existing document before initializing/resetting state.
+- Added `backend/app/documents/processing_backend.py` so the documented
+  `thread|celery` switch is represented in code instead of being inline-only.
+- Added an opt-in Celery integration test:
+  `backend/tests/integration/test_celery_document_processing.py`.
+- Added `make celery-integration-test` to start the Docker Celery path and run
+  the integration test through the backend image.
+- Added completed-upload blob cleanup. Failed documents keep their stored blob
+  for retry/debug, but completed documents delete the local upload blob.
+- Tightened the Celery chord errback so it marks the document failed when called
+  with a document ID.
+- Added comments documenting the intentional shared ownership of
+  `document_chunks`: the repository owns text/metadata, and `PgVectorStore`
+  fills embeddings after chunks are saved.
+- Updated limitations to name the connection-per-call Postgres behavior as a
+  portfolio/demo scaling limitation.
+
+**Tests / verification.**
+- `uv run pytest`: **49 passed, 2 skipped**.
+- Docker integration target was added but not run in this pass.
+
+---
+
+## 2026-06-07 — Phase 4 durable async workflow implemented
+
+**Context.** Implemented the narrow Phase 4 scope: durable document state first,
+then real Celery dispatch behind a feature flag, all verified through Docker
+Compose.
+
+**Changes.**
+- Added durable document state:
+  - `documents`
+  - `processing_steps`
+  - `document_branches`
+  - `evaluation_runs`
+  - `document_chunks.document_id` foreign key with `ON DELETE CASCADE`
+- Added Alembic `0002_phase4_document_state` and kept the Docker runtime
+  self-create path aligned with it.
+- Added a `DocumentRepository` abstraction with in-memory and Postgres
+  implementations. In Postgres mode, document/status reads hit the database on
+  every request, so backend reads see worker writes.
+- Added local durable upload storage using content-hash storage keys. Docker
+  shares `/app/data/uploads` between backend, worker and live-test containers via
+  a named volume.
+- Added `DOCUMENT_PROCESSING_BACKEND=thread|celery`.
+  - `thread` remains the default.
+  - `celery` requires `VECTOR_STORE_BACKEND=postgres`.
+- Replaced the Phase 3 Celery scaffold with real dispatch:
+  `seed_document_from_storage -> chord(embedding, extracting, summarising) ->
+  aggregate_document`.
+- Branch tasks persist outputs/status in Postgres and return only small metadata
+  through Redis; raw upload bytes are never sent through Redis.
+- Persisted async evaluation runs in Postgres mode while keeping the fast test
+  path in-memory and offline.
+- Added explicit Compose `ENABLE_LLM` override support so Docker runs can be
+  forced offline even when `.env` contains real provider credentials.
+
+**Issue found during verification.**
+- The first Celery smoke test exposed a real distributed-runtime bug: concurrent
+  branch workers could deadlock while each process tried to run runtime schema
+  evolution. Fixed by serialising schema self-create/evolution with a Postgres
+  advisory lock and caching repository schema readiness per process.
+
+**Tests / verification.**
+- `uv run ruff check .`: passed.
+- `uv run ruff format --check .`: passed.
+- `uv run pytest`: **46 passed, 1 skipped**.
+- `uv run alembic upgrade head --sql`: emitted `0001` + `0002` SQL.
+- `docker compose --profile test build tests`: rebuilt the backend test image.
+- `docker compose --profile test run --rm tests`: **46 passed, 1 skipped**.
+- `docker compose --profile test run --rm tests alembic upgrade head --sql`:
+  emitted the Phase 4 schema SQL in the container.
+- Docker default ports verified:
+  - backend `/health`: alive
+  - backend `/ready`: ready, Postgres/pgvector ready
+  - frontend `http://localhost:9999`: HTTP 200
+- Thread + Postgres milestone verified:
+  - uploaded `invoice_brightwave.txt`
+  - document reached `completed`
+  - restarted backend
+  - `GET /documents/{id}` still returned summary, extracted fields and status
+    from Postgres.
+- Celery + Postgres milestone verified:
+  - restarted backend/worker with `DOCUMENT_PROCESSING_BACKEND=celery`
+  - uploaded `invoice_globex.txt`
+  - worker completed embedding/extracting/summarising branches
+  - API read the worker-written completed document
+  - restarted backend
+  - `GET /documents/{id}` still returned the Celery-processed document from
+    Postgres.
+
+**Current caveats.**
+- Docker integration checks were run manually as smoke tests, not yet as a
+  committed automated integration test target.
+- Live provider smoke was not run in this pass to avoid provider cost.
+
+---
+
 ## 2026-06-07 — Docker Compose test workflow
 
 **Context.** The project should be operated and verified as Docker Compose
