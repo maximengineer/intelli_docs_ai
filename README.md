@@ -222,7 +222,7 @@ Local semantic embeddings (`EMBEDDING_BACKEND=local`) score **identically** on t
 
 ## Architecture
 
-The current implementation is Phase 5 in progress:
+The current implementation has completed the Phase 5 portfolio-demo scope:
 
 ```text
 FastAPI upload -> durable upload store -> queued thread/Celery task

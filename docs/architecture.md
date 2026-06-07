@@ -1,7 +1,6 @@
 # Architecture
 
-IntelliDocs AI is currently a Phase 5 in-progress production-style portfolio
-implementation.
+IntelliDocs AI has completed the Phase 5 production-style portfolio demo scope.
 
 ## Ingestion
 
@@ -35,6 +34,10 @@ seed document from storage key
 Branch tasks persist their outputs/status in Postgres and return only small
 metadata through Redis. The aggregate task performs the single final document
 write.
+
+Celery tasks use native soft and hard time limits. The synchronous thread
+fallback keeps its local parser timeout, but the distributed worker path also
+has Celery-level protection against stuck parser or provider calls.
 
 ## Container Workflow
 
@@ -75,6 +78,10 @@ The support-check gate has two deterministic layers: citation integrity (cited
 chunk IDs must belong to retrieved context) and grounding (the answer must share
 content tokens with the chunk text it cites, so an answer that cites context it
 did not use is rejected). It is lexical, not semantic entailment.
+
+The LLM-backed path is the primary product path for answer quality. The offline
+lexical answerer exists so CI, tests and key-less demos are deterministic; its
+known false-positive mode is reported in the evaluation instead of hidden.
 
 `POST /evaluation/run` starts a forced-offline evaluation asynchronously and
 returns an `evaluation_id`; poll `GET /evaluation/{evaluation_id}` for the
@@ -122,6 +129,17 @@ The migrations use `IF NOT EXISTS` for the runtime-created objects, so running
 Alembic later against a Docker demo database does not fail on already-existing
 tables or indexes.
 Changing the embedding model's dimension requires a new migration.
+
+Postgres access goes through a bounded per-process psycopg connection pool,
+configured with `DATABASE_POOL_MIN_SIZE`, `DATABASE_POOL_MAX_SIZE` and
+`DATABASE_POOL_TIMEOUT_SECONDS`. This keeps the backend and Celery branches from
+opening a new database connection for every repository/vector-store operation.
+
+Privacy text persistence is intentionally scoped. The current privacy policy
+redacts high-risk identifiers, stores `ai_text` on the document row for Celery
+branches/retry, and stores display-safe chunk text in `document_chunks.text` for
+retrieval snippets and citations. The raw upload blob is transient local storage
+and is removed after successful processing.
 
 The runtime schema helper and Alembic migrations intentionally duplicate the
 small amount of DDL needed for the Docker demo path. Do not make Alembic import

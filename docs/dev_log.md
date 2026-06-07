@@ -6,6 +6,74 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-08 — Phase 5 marked complete
+
+**Context.** After Phase 5 demo polish, review fixes, Staff-review hardening and
+Docker/Celery integration verification, the implementation guide and project
+plan still described Phase 5 as in progress.
+
+**Changes.**
+- Marked Phase 5 as implemented and verified in the implementation guide.
+- Marked Phase 5 as implemented and verified in the project plan.
+- Updated README and architecture docs to say the Phase 5 portfolio-demo scope
+  is complete.
+
+**Tests / verification.**
+- Documentation/status update only; prior verification is recorded in the
+  Staff-review hardening entry.
+
+---
+
+## 2026-06-07 — Staff-review hardening fixes
+
+**Context.** A Staff AI Engineer style review identified remaining polish gaps:
+database connection management, parser timeout handling in Celery workers,
+privacy variant persistence ambiguity, evaluation dataset generation workflow and
+the framing of the lexical offline fallback.
+
+**Changes.**
+- Added `psycopg-pool==3.3.1` and a bounded per-process connection pool helper
+  for Postgres access.
+- Routed durable repository, pgvector and persisted evaluation-run database
+  operations through the pooled connection helper.
+- Added database pool settings:
+  `DATABASE_POOL_MIN_SIZE`, `DATABASE_POOL_MAX_SIZE`,
+  `DATABASE_POOL_TIMEOUT_SECONDS`.
+- Added Celery task soft/hard time limits with settings
+  `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` and
+  `CELERY_TASK_TIME_LIMIT_SECONDS`.
+- Added a regression test asserting document Celery tasks have configured time
+  limits.
+- Added `scripts/generate_eval_dataset.py`, an optional LLM-assisted generator
+  for candidate evaluation rows. It writes ignored candidate JSONL files and
+  requires manual review before anything becomes golden evaluation data.
+- Updated architecture, privacy, evaluation and limitations docs to clarify:
+  connection pooling, Celery time limits, privacy persistence, and the offline
+  lexical fallback as a deterministic CI/key-less-demo path.
+
+**Notes.**
+- The review suggested configuring SQLAlchemy `create_engine(pool_size=...)`.
+  That would not cover the hot path here because the repository/vector/eval code
+  uses direct psycopg operations. The implemented fix uses psycopg's native pool
+  instead.
+
+**Tests / verification.**
+- `uv lock --check`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: **60 passed, 2 skipped** on Python
+  `3.13.13`.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `document_hit_at_5=1.0`, `citation_coverage=1.0`,
+  `unsupported_answer_rejection_rate=0.8`,
+  `support_check_pass_rate=1.0`, `extraction_field_accuracy=1.0`,
+  `average_latency_ms=10.71`.
+- `COMPOSE_PROJECT_NAME=intellidocs_pool_check make celery-integration-test`:
+  **1 passed** in Docker Compose against Redis/Celery/Postgres with
+  `psycopg-pool==3.3.1` installed in the backend image.
+- `git diff --check`: passed.
+
+---
+
 ## 2026-06-07 — Phase 5 review fixes
 
 **Context.** A critical review of the first Phase 5 pass found no blockers, but
