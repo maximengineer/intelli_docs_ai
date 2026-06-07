@@ -25,6 +25,29 @@ The API does not currently dispatch a real Celery group/chord because document
 metadata and status are still process-local. Making Celery the default path
 requires durable document metadata/status first.
 
+## Container Workflow
+
+Docker Compose is the primary runtime target for the project. The stack includes:
+
+- `postgres`: PostgreSQL with pgvector.
+- `redis`: broker/result backend for Celery.
+- `backend`: FastAPI app, health-checked through `/ready`.
+- `worker`: Celery worker scaffold using the same backend image.
+- `frontend`: Streamlit UI built as its own image.
+- `tests`: profile-gated test runner using the same backend image.
+- `live-tests`: profile-gated provider smoke test using `.env` and the same
+  backend image.
+
+The backend image copies application code, worker code, prompts, sample data,
+scripts, Alembic migrations and `alembic.ini`, so tests, evaluation and migration
+checks can run inside containers. The `tests` service intentionally does not
+load `.env`; it forces offline deterministic settings so real API keys and host
+configuration cannot affect the test suite.
+
+`live-tests` is the explicit exception: it loads `.env`, forces
+`ENABLE_LLM=true`, and runs a small provider-backed smoke test. It is opt-in
+because it may incur cost and depends on external provider availability.
+
 ## Query
 
 ```text

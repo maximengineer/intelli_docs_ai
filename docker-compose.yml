@@ -1,8 +1,6 @@
 services:
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -15,8 +13,6 @@ services:
       POSTGRES_DB: intellidocs
       POSTGRES_USER: intellidocs
       POSTGRES_PASSWORD: intellidocs
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,7 +35,19 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-7777}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,19 +74,59 @@ services:
         condition: service_healthy
 
   frontend:
-    image: python:3.12-slim
-    working_dir: /app
-    volumes:
-      - .:/app
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     environment:
       INTELLIDOCS_API_URL: http://backend:8000
-    command: >
-      sh -c "pip install --no-cache-dir streamlit==1.58.0 requests==2.34.2 &&
-             streamlit run frontend/streamlit_app.py --server.address 0.0.0.0 --server.port 8501"
     ports:
-      - "8501:8501"
+      - "${FRONTEND_PORT:-9999}:8501"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+
+  tests:
+    profiles:
+      - test
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      ENABLE_LLM: "false"
+      EMBEDDING_BACKEND: hash
+      VECTOR_STORE_BACKEND: memory
+      DATABASE_URL: ""
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    command: pytest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  live-tests:
+    profiles:
+      - live-test
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    environment:
+      ENABLE_LLM: "true"
+      DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
+      VECTOR_STORE_BACKEND: postgres
+      EMBEDDING_BACKEND: ${LIVE_EMBEDDING_BACKEND:-hash}
+      LIVE_REQUIRE_PROVIDER_EMBEDDINGS: ${LIVE_REQUIRE_PROVIDER_EMBEDDINGS:-false}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    command: python scripts/run_live_smoke.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:

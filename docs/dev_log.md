@@ -6,6 +6,81 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-07 — Docker Compose test workflow
+
+**Context.** The project should be operated and verified as Docker Compose
+services rather than relying on a fragile local Python/Postgres/Redis/Celery
+setup.
+
+**Changes.**
+- Added `.dockerignore` so local caches, `.env`, ignored plans and virtualenvs
+  are not sent in the Docker build context.
+- Backend image now includes scripts, Alembic migrations and `alembic.ini`, not
+  just app/runtime code.
+- `PYTHONPATH` inside the image now includes `/app` and `/app/backend`, so both
+  `app.*` and `worker.*` imports work consistently.
+- Added a backend `/ready` healthcheck in Compose.
+- Frontend now waits for the backend healthcheck instead of only container start.
+- Added a dedicated frontend Dockerfile so Streamlit dependencies install at
+  image build time instead of on every container start.
+- Added a profile-gated `tests` Compose service that runs `pytest` inside the
+  backend image with deterministic offline settings and without loading `.env`.
+- Added a profile-gated `live-tests` Compose service plus
+  `scripts/run_live_smoke.py` for opt-in provider-backed smoke testing with
+  `.env`.
+- Added a Makefile with Docker workflow targets for start/stop, logs, offline
+  tests, evaluation, Alembic SQL and live provider smoke testing.
+- Changed default host-published Compose ports to `7777` for the backend and
+  `9999` for the frontend to reduce conflicts with common local services.
+- Synced the project plan and implementation guide to make Docker Compose the
+  primary runtime/verification target and document the offline/live test split.
+- Added live-test controls to `.env.example`.
+
+**Container commands.**
+- App stack: `make up`.
+- Stop stack: `make down`.
+- Tests: `make test`.
+- Offline eval in container: `make eval`.
+- Alembic SQL check in container: `make alembic-sql`.
+- Live provider smoke: `make live-test`.
+- Full target list: `make help`.
+
+**Verification.**
+- `docker compose --profile test run --rm tests`: **42 passed, 1 skipped**.
+- Container offline eval completed with the synthetic dataset.
+- Container Alembic SQL generation emitted the pgvector `document_chunks` schema.
+- Full stack started in Docker using alternate host ports
+  (`BACKEND_PORT=18000 FRONTEND_PORT=18501`); the committed Compose/Makefile
+  defaults are `7777`/`9999`.
+- Backend `/health` and `/ready` passed in-container; `/ready` reported
+  Postgres/pgvector ready.
+- Celery worker responded to `celery inspect ping`.
+- Streamlit frontend returned HTTP 200 on the host-published port.
+- Caveat: the Postgres/pgvector, Celery and frontend results above are from this
+  session's Docker run, not from the always-on offline gate (which never starts
+  those services). Re-run the `make`/`--profile` container targets to reconfirm
+  before relying on them.
+
+---
+
+## 2026-06-07 — Phase 4 critique reviewed
+
+**Context.** Reviewed an external critique of the newly defined Phase 4 scope,
+ignoring comments about uncommitted work as requested.
+
+**Outcome.**
+- The critique agrees with the current direction: Phase 4 is now defined enough
+  to implement as a narrow durable async workflow.
+- Added an implementation-guide note that reintroducing document repositories
+  and models is correct in Phase 4 because they become live runtime code, not
+  dead Phase 2 scaffolding.
+- Added an implementation-guide verification boundary: fast local tests should
+  remain hermetic, while Redis/Celery/Postgres behavior should be verified by
+  optional Docker integration tests and not overclaimed if those tests have not
+  been run.
+
+---
+
 ## 2026-06-06 — Phase 3 readiness review before Phase 4
 
 **Context.** Reviewed the latest Phase 3 deep-review fixes and investigated
@@ -28,8 +103,8 @@ whether the project is ready to move to a Phase 4.
   `text_for_purpose`.
 
 **Remaining issues before a broad Phase 4.**
-- There is no Phase 4 scope in the implementation guide. A new phase should be
-  defined before implementation starts.
+- Phase 4 scope has now been defined in the project plan and implementation
+  guide as a narrow durable async workflow, not a broad product-feature phase.
 - Document metadata/status/extraction outputs are still process-local. This is
   the main blocker to enabling real Celery dispatch.
 - Upload bytes are still represented as `content_hex` in the Celery canvas
@@ -42,10 +117,10 @@ whether the project is ready to move to a Phase 4.
 
 **Readiness decision.**
 - Phase 3 is demo-ready and internally cleaner after the latest fixes.
-- The project is **not ready for a broad Phase 4** until that phase is defined.
-  If Phase 4 is added, the first scope should be durable document state,
-  durable upload storage, feature-flagged Celery dispatch, and optional
-  integration tests.
+- The project is **not ready for a broad Phase 4**. It is ready to start the
+  newly defined narrow Phase 4 only if the first implementation scope is durable
+  document state, durable upload storage, feature-flagged Celery dispatch and
+  optional integration tests.
 
 **Tests / verification.**
 - `ruff format --check .`: clean after formatting `backend/app/api/routes_qa.py`.

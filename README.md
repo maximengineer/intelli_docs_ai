@@ -36,18 +36,25 @@ Upload documents -> extract facts -> ask questions -> get cited answers -> run e
 - Pytest tests (LLM paths covered with a fake client — no real network calls); ruff-linted
 - Docker Compose
 
-## Run Locally
+## Run With Docker Compose
 
 ```bash
 cp .env.example .env
-docker compose up --build
+make up
 ```
 
 Open:
 
-- API: `http://localhost:8000/health`
-- Readiness: `http://localhost:8000/ready`
-- UI: `http://localhost:8501`
+- API: `http://localhost:7777/health`
+- Readiness: `http://localhost:7777/ready`
+- UI: `http://localhost:9999`
+
+If those host ports are already in use, override them without changing the
+container network:
+
+```bash
+BACKEND_PORT=18000 FRONTEND_PORT=18501 make up
+```
 
 By default the app runs offline with no API key (hash embeddings + extractive answerer).
 
@@ -56,6 +63,57 @@ the `pgvector/pgvector:pg17` service, and forces `EMBEDDING_BACKEND=hash` so the
 container does not need a model download or optional torch install. Local
 `uvicorn` development defaults to `VECTOR_STORE_BACKEND=memory` unless you opt
 into Postgres in `.env`.
+
+The frontend is also built as a Docker image, so Streamlit dependencies are
+installed at build time rather than on every container start.
+
+Postgres and Redis are intentionally not published to host ports by default.
+Backend, worker and tests use them over the Compose network, which avoids
+conflicts with any local Postgres or Redis already running on the host.
+
+Run the test suite inside Docker, using the same backend image:
+
+```bash
+make test
+```
+
+Run the offline evaluation inside Docker:
+
+```bash
+make eval
+```
+
+Check Alembic SQL generation inside Docker:
+
+```bash
+make alembic-sql
+```
+
+The `tests` service does not load `.env`; it forces deterministic offline
+settings (`ENABLE_LLM=false`, `EMBEDDING_BACKEND=hash`,
+`VECTOR_STORE_BACKEND=memory`) so API keys and host-specific settings do not
+affect test behavior.
+
+Run a live provider smoke test inside Docker:
+
+```bash
+make live-test
+```
+
+The `live-tests` service **does** load `.env`, forces `ENABLE_LLM=true`, and
+runs one synthetic document through provider-backed LLM initialization,
+document processing and cited Q&A. It defaults to hash embeddings to keep the
+smoke cheap and focused on the LLM path. To also require provider embeddings:
+
+```bash
+make live-test-embeddings
+```
+
+Live tests are opt-in because they can incur provider cost and are less
+deterministic than the offline test suite.
+
+Run `make help` for all Docker workflow commands, including logs, status,
+shutdown and Compose config validation.
 
 **Real semantic retrieval (recommended, no key, offline):**
 

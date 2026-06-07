@@ -9,8 +9,11 @@ COPY backend /app/backend
 COPY worker /app/worker
 COPY prompts /app/prompts
 COPY data /app/data
+COPY scripts /app/scripts
+COPY migrations /app/migrations
+COPY alembic.ini /app/alembic.ini
 
-ENV PYTHONPATH=/app/backend
+ENV PYTHONPATH=/app:/app/backend
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
