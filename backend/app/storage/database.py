@@ -1,20 +1,35 @@
 from __future__ import annotations
 
+import atexit
 import logging
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
+from threading import Lock
+
+from app.core.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 _SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_POOLS: dict[str, object] = {}
+_POOLS_LOCK = Lock()
+
+
+@contextmanager
+def database_connection(database_url: str, *, connect_timeout: int = 2) -> Iterator[object]:
+    """Borrow a Postgres connection from a bounded per-process pool."""
+
+    pool = _get_database_pool(database_url, connect_timeout=connect_timeout)
+    with pool.connection() as connection:
+        yield connection
 
 
 def check_database_ready(database_url: str | None) -> bool:
     if not database_url:
         return False
     try:
-        import psycopg
-
-        with psycopg.connect(database_url, connect_timeout=2) as connection:
+        with database_connection(database_url, connect_timeout=2) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("select 1")
                 cursor.fetchone()
@@ -28,9 +43,7 @@ def check_pgvector_ready(database_url: str | None, expected_dimension: int | Non
     if not database_url:
         return False
     try:
-        import psycopg
-
-        with psycopg.connect(database_url, connect_timeout=2) as connection:
+        with database_connection(database_url, connect_timeout=2) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -96,9 +109,7 @@ def ensure_pgvector_schema(
     _validate_sql_identifier(operator_class, "POSTGRES_VECTOR_OPERATOR_CLASS")
     _validate_sql_identifier(index_type, "POSTGRES_VECTOR_INDEX_TYPE")
 
-    import psycopg
-
-    with psycopg.connect(database_url, connect_timeout=2) as connection:
+    with database_connection(database_url, connect_timeout=2) as connection:
         with connection.cursor() as cursor:
             cursor.execute("select pg_advisory_lock(hashtext('intellidocs_schema'))")
             try:
@@ -136,6 +147,42 @@ def ensure_pgvector_schema(
                     logger.warning("schema_advisory_unlock_failed", exc_info=True)
         connection.commit()
     return check_pgvector_ready(database_url, expected_dimension=dimension)
+
+
+def _get_database_pool(database_url: str, *, connect_timeout: int) -> object:
+    settings = get_settings()
+    with _POOLS_LOCK:
+        pool = _POOLS.get(database_url)
+        if pool is not None:
+            return pool
+
+        from psycopg_pool import ConnectionPool
+
+        pool = ConnectionPool(
+            conninfo=database_url,
+            min_size=settings.database_pool_min_size,
+            max_size=settings.database_pool_max_size,
+            timeout=settings.database_pool_timeout_seconds,
+            kwargs={"connect_timeout": connect_timeout},
+            open=False,
+        )
+        pool.open(wait=True)
+        _POOLS[database_url] = pool
+        return pool
+
+
+def close_database_pools() -> None:
+    with _POOLS_LOCK:
+        pools = list(_POOLS.values())
+        _POOLS.clear()
+    for pool in pools:
+        try:
+            pool.close()
+        except Exception:
+            logger.warning("database_pool_close_failed", exc_info=True)
+
+
+atexit.register(close_database_pools)
 
 
 def _ensure_document_state_schema(cursor: object) -> None:

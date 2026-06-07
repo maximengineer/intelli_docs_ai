@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     postgres_vector_distance_metric: str = "cosine"
     postgres_vector_operator_class: str = "vector_cosine_ops"
     postgres_vector_index_type: str = "hnsw"
+    database_pool_min_size: int = Field(default=1, ge=0)
+    database_pool_max_size: int = Field(default=5, ge=1)
+    database_pool_timeout_seconds: float = Field(default=5.0, gt=0)
 
     # --- Phase 3 hardening ---------------------------------------------------
     celery_broker_url: str = "redis://redis:6379/0"
@@ -52,6 +55,8 @@ class Settings(BaseSettings):
     # that cites context it did not use (0 = grounding check disabled).
     support_check_min_overlap: int = Field(default=1, ge=0)
     streaming_enabled: bool = True
+    celery_task_soft_time_limit_seconds: int = Field(default=50, ge=1)
+    celery_task_time_limit_seconds: int = Field(default=60, ge=1)
 
     # --- Phase 2 cost estimation ------------------------------------------
     price_table_as_of: str = "2026-06-06"

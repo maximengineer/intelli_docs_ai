@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from app.core.settings import get_settings
 from app.documents.service import get_document_service
+from celery.exceptions import SoftTimeLimitExceeded
 
 from worker.worker import celery_app
 
+_SETTINGS = get_settings()
+_TASK_LIMITS = {
+    "soft_time_limit": _SETTINGS.celery_task_soft_time_limit_seconds,
+    "time_limit": _SETTINGS.celery_task_time_limit_seconds,
+}
 
-@celery_app.task(name="intellidocs.seed_document_from_storage")
+
+@celery_app.task(name="intellidocs.seed_document_from_storage", **_TASK_LIMITS)
 def seed_document_from_storage(
     document_id: str,
     filename: str,
@@ -14,28 +22,32 @@ def seed_document_from_storage(
     return get_document_service().seed_document_from_storage(document_id, filename, storage_key)
 
 
-@celery_app.task(name="intellidocs.embed_branch")
+@celery_app.task(name="intellidocs.embed_branch", **_TASK_LIMITS)
 def embed_branch(payload: dict[str, object]) -> dict[str, object]:
     document_id = str(payload["document_id"])
     return get_document_service().run_embedding_branch(document_id)
 
 
-@celery_app.task(name="intellidocs.extract_branch")
+@celery_app.task(name="intellidocs.extract_branch", **_TASK_LIMITS)
 def extract_branch(payload: dict[str, object]) -> dict[str, object]:
     document_id = str(payload["document_id"])
     return get_document_service().run_extraction_branch(document_id)
 
 
-@celery_app.task(name="intellidocs.summarize_branch")
+@celery_app.task(name="intellidocs.summarize_branch", **_TASK_LIMITS)
 def summarize_branch(payload: dict[str, object]) -> dict[str, object]:
     document_id = str(payload["document_id"])
     return get_document_service().run_summary_branch(document_id)
 
 
-@celery_app.task(name="intellidocs.aggregate_document")
+@celery_app.task(name="intellidocs.aggregate_document", **_TASK_LIMITS)
 def aggregate_document(results: list[dict[str, object]]) -> dict[str, object]:
     document_id = str(results[0].get("document_id", "")) if results else ""
-    return get_document_service().aggregate_document(document_id)
+    try:
+        return get_document_service().aggregate_document(document_id)
+    except SoftTimeLimitExceeded as exc:
+        get_document_service().mark_document_failed(document_id, str(exc))
+        raise
 
 
 @celery_app.task(name="intellidocs.document_chord_error")

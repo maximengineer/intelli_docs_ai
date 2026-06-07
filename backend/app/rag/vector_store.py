@@ -9,7 +9,7 @@ from app.core.settings import get_settings
 from app.documents.schemas import DocumentChunk
 from app.rag.embeddings import EmbeddingModel, cosine_similarity, get_embedding_model
 from app.rag.schemas import RetrievedChunk
-from app.storage.database import ensure_pgvector_schema
+from app.storage.database import database_connection, ensure_pgvector_schema
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +139,7 @@ class PgVectorStore:
                 )
             rows.append((chunk, _vector_literal(vector)))
 
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 for chunk, vector in rows:
                     cursor.execute(
@@ -183,9 +181,7 @@ class PgVectorStore:
 
     def remove_chunks(self, document_id: str) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from document_chunks where document_id = %s", (document_id,))
             connection.commit()
@@ -205,9 +201,7 @@ class PgVectorStore:
             params.append(document_ids)
         params.extend([query_vector, top_k])
 
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""

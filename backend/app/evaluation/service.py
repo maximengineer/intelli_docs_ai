@@ -22,7 +22,7 @@ from app.rag.retriever import Retriever
 from app.rag.schemas import QARequest
 from app.rag.service import QAService
 from app.rag.vector_store import InMemoryVectorStore
-from app.storage.database import ensure_pgvector_schema
+from app.storage.database import database_connection, ensure_pgvector_schema
 from app.storage.repositories import InMemoryDocumentRepository
 from app.storage.upload_store import LocalUploadStore
 
@@ -227,11 +227,10 @@ class EvaluationService:
         settings = get_settings()
         if not settings.durable_document_state_enabled or not settings.database_url:
             return
-        import psycopg
         from psycopg.types.json import Jsonb
 
         _ensure_durable_schema(settings.database_url)
-        with psycopg.connect(settings.database_url) as connection:
+        with database_connection(settings.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -265,10 +264,8 @@ class EvaluationService:
         settings = get_settings()
         if not settings.durable_document_state_enabled or not settings.database_url:
             return None
-        import psycopg
-
         _ensure_durable_schema(settings.database_url)
-        with psycopg.connect(settings.database_url) as connection:
+        with database_connection(settings.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """

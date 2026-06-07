@@ -8,7 +8,7 @@ from app.evaluation.service import run_offline_evaluation
 from app.rag.critic import check_answer_support
 from app.rag.schemas import QARequest, RetrievedChunk, SourceCitation
 
-from worker.tasks import document_chord_error
+from worker.tasks import document_chord_error, seed_document_from_storage
 
 
 def test_streaming_qa_emits_status_before_final_answer() -> None:
@@ -29,6 +29,11 @@ def test_streaming_qa_emits_status_before_final_answer() -> None:
         "insufficient_information",
         "failed",
     }
+
+
+def test_celery_document_tasks_have_time_limits() -> None:
+    assert seed_document_from_storage.soft_time_limit == 50
+    assert seed_document_from_storage.time_limit == 60
 
 
 def test_support_check_rejects_citation_outside_context() -> None:

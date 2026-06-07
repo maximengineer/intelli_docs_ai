@@ -17,7 +17,7 @@ from app.documents.schemas import (
     ProcessingStepName,
     ProcessingStepStatus,
 )
-from app.storage.database import ensure_pgvector_schema
+from app.storage.database import database_connection, ensure_pgvector_schema
 
 logger = logging.getLogger(__name__)
 
@@ -304,9 +304,7 @@ class PostgresDocumentRepository:
 
     def get_document(self, document_id: str) -> DocumentResponse | None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -346,9 +344,7 @@ class PostgresDocumentRepository:
 
     def get_status(self, document_id: str) -> DocumentStatusResponse | None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -414,14 +410,13 @@ class PostgresDocumentRepository:
 
     def list_chunks(self, document_ids: list[str] | None = None) -> list[DocumentChunk]:
         self._ensure_schema()
-        import psycopg
 
         where = ""
         params: tuple[object, ...] = ()
         if document_ids:
             where = "where document_id = any(%s)"
             params = (document_ids,)
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
@@ -455,9 +450,7 @@ class PostgresDocumentRepository:
 
     def get_ai_text(self, document_id: str) -> str | None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     "select ai_text from documents where document_id = %s",
@@ -468,9 +461,7 @@ class PostgresDocumentRepository:
 
     def get_branch_results(self, document_id: str) -> dict[str, dict[str, Any]]:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -495,9 +486,7 @@ class PostgresDocumentRepository:
         processing_backend: str | None = None,
     ) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -552,9 +541,7 @@ class PostgresDocumentRepository:
 
     def set_processing_task_id(self, document_id: str, task_id: str) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -569,9 +556,7 @@ class PostgresDocumentRepository:
 
     def get_storage_key(self, document_id: str) -> str | None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -586,9 +571,7 @@ class PostgresDocumentRepository:
 
     def save_ai_text(self, document_id: str, ai_text: str, privacy_policy_version: str) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -608,9 +591,7 @@ class PostgresDocumentRepository:
         # the call order as save_chunks -> vector_store.index to avoid wiping
         # freshly computed vectors.
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from document_chunks where document_id = %s", (document_id,))
                 for chunk in chunks:
@@ -657,10 +638,9 @@ class PostgresDocumentRepository:
 
     def save_document(self, document: DocumentResponse) -> None:
         self._ensure_schema()
-        import psycopg
         from psycopg.types.json import Jsonb
 
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -701,9 +681,7 @@ class PostgresDocumentRepository:
         error: str | None = None,
     ) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -726,9 +704,7 @@ class PostgresDocumentRepository:
         error: str | None = None,
     ) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 self._upsert_step(cursor, document_id, name, status, error)
             connection.commit()
@@ -742,18 +718,14 @@ class PostgresDocumentRepository:
         result: dict[str, Any] | None = None,
     ) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 self._upsert_branch(cursor, document_id, name, status, error, result)
             connection.commit()
 
     def fail_running_work(self, document_id: str, error: str) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -775,9 +747,7 @@ class PostgresDocumentRepository:
 
     def delete_document(self, document_id: str) -> None:
         self._ensure_schema()
-        import psycopg
-
-        with psycopg.connect(self.database_url) as connection:
+        with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from documents where document_id = %s", (document_id,))
             connection.commit()
