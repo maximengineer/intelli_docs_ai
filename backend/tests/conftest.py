@@ -10,4 +10,5 @@ import os
 os.environ["ENABLE_LLM"] = "false"
 os.environ["EMBEDDING_BACKEND"] = "hash"
 os.environ["VECTOR_STORE_BACKEND"] = "memory"
+os.environ["DOCUMENT_PROCESSING_BACKEND"] = "thread"
 os.environ.pop("DATABASE_URL", None)

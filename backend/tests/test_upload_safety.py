@@ -1,8 +1,9 @@
 from io import BytesIO
 
 import pytest
+from app.api import routes_documents
 from app.api.routes_documents import upload_document
-from app.documents.service import get_document_service
+from app.documents.service import DocumentSubmissionError, get_document_service
 from fastapi import HTTPException, UploadFile, status
 from starlette.datastructures import Headers
 
@@ -33,3 +34,30 @@ def test_upload_accepts_allowed_text_mime_type() -> None:
     assert document.filename == "invoice.txt"
     status_response = get_document_service().get_status(document.document_id)
     assert status_response is not None
+
+
+def test_upload_returns_structured_service_unavailable_on_submission_failure(
+    monkeypatch,
+) -> None:
+    class FailingService:
+        def submit_upload(self, filename: str, content: bytes):
+            del content
+            raise DocumentSubmissionError("doc_failed", filename, "broker unavailable")
+
+    monkeypatch.setattr(routes_documents, "get_document_service", lambda: FailingService())
+    file = UploadFile(
+        BytesIO(b"Invoice\nVendor: Failure Ltd"),
+        filename="invoice.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        upload_document(file)
+
+    assert exc.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert exc.value.detail == {
+        "document_id": "doc_failed",
+        "filename": "invoice.txt",
+        "status": "failed",
+        "error": "broker unavailable",
+    }

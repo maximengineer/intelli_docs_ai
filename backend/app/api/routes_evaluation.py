@@ -28,4 +28,6 @@ def get_evaluation(evaluation_id: str) -> dict[str, object]:
         "status": run.status,
         "result": run.result,
         "error": run.error,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
     }

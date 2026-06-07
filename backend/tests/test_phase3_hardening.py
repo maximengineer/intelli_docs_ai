@@ -111,6 +111,18 @@ def test_offline_evaluation_returns_richer_phase3_metrics() -> None:
     assert "support_check_pass_rate" in payload
 
 
+def test_forced_offline_evaluation_does_not_use_configured_repository(monkeypatch) -> None:
+    def fail_if_called():
+        raise AssertionError("forced offline evaluation should use an isolated repository")
+
+    monkeypatch.setattr("app.documents.service.build_document_repository", fail_if_called)
+
+    payload = run_offline_evaluation(force_offline=True)
+
+    assert payload["status"] == "completed"
+    assert payload["embedding_backend"] == "hash"
+
+
 def test_evaluation_api_runs_async_and_exposes_result() -> None:
     started = run_evaluation()
     assert started["status"] == "running"
@@ -126,8 +138,41 @@ def test_evaluation_api_runs_async_and_exposes_result() -> None:
     assert payload["result"]["document_hit_at_5"] == 1.0
 
 
-def test_celery_chord_errback_contract() -> None:
-    payload = document_chord_error("request-id", RuntimeError("boom"), "traceback")
+def test_celery_chord_errback_contract(monkeypatch) -> None:
+    failures: list[tuple[str, str]] = []
 
+    class FakeDocumentService:
+        def mark_document_failed(self, document_id: str, error: str) -> None:
+            failures.append((document_id, error))
+
+    monkeypatch.setattr(
+        "worker.tasks.get_document_service",
+        lambda: FakeDocumentService(),
+    )
+
+    payload = document_chord_error("doc_err", "request-id", RuntimeError("boom"), "traceback")
+
+    assert payload["document_id"] == "doc_err"
     assert payload["status"] == "failed"
     assert "boom" in payload["error"]
+    assert failures == [("doc_err", "boom")]
+
+
+def test_celery_chord_errback_finds_document_id_when_celery_reorders_args(
+    monkeypatch,
+) -> None:
+    failures: list[tuple[str, str]] = []
+
+    class FakeDocumentService:
+        def mark_document_failed(self, document_id: str, error: str) -> None:
+            failures.append((document_id, error))
+
+    monkeypatch.setattr(
+        "worker.tasks.get_document_service",
+        lambda: FakeDocumentService(),
+    )
+
+    payload = document_chord_error("request-id", RuntimeError("boom"), "traceback", "doc_err")
+
+    assert payload["document_id"] == "doc_err"
+    assert failures == [("doc_err", "boom")]
