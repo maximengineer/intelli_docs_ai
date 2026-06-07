@@ -47,6 +47,19 @@ and final results are persisted to Postgres when durable state is enabled, so
 `GET /evaluation/{evaluation_id}` can retrieve completed runs after the worker
 thread finishes.
 
+## Generating Candidates
+
+`scripts/generate_eval_dataset.py` can use the configured LLM provider to
+bootstrap candidate evaluation rows from the synthetic sample documents:
+
+```bash
+ENABLE_LLM=true OPENROUTER_API_KEY=sk-or-... uv run python scripts/generate_eval_dataset.py
+```
+
+The script writes to `data/evaluation/generated_candidates/`, which is ignored by
+Git. Generated rows are candidates only; manually review them before copying any
+question or extraction row into the committed golden evaluation files.
+
 ## Current Snapshot
 
 Measured on 2026-06-07 with Python 3.13, no API key, hash embeddings and the

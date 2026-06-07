@@ -8,6 +8,7 @@
 advanced/
 .env
 data/uploads/
+data/evaluation/generated_candidates/
 AGENTS.md
 CLAUDE.md
 intellidocs_ai_implementation_guide.md
