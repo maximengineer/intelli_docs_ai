@@ -6,6 +6,211 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-06 — Phase 3 readiness review before Phase 4
+
+**Context.** Reviewed the latest Phase 3 deep-review fixes and investigated
+whether the project is ready to move to a Phase 4.
+
+**Confirmed fixes.**
+- Support check now includes lexical grounding overlap, so it can reject a valid
+  citation attached to an unrelated answer.
+- `/evaluation/run` is asynchronous and forced offline; results are retrieved
+  with `GET /evaluation/{evaluation_id}`.
+- `data/` is copied into the backend image for in-container evaluation runs.
+- Celery canvas construction is reviewable and no longer runs the real document
+  pipeline inside a process-local worker store.
+- Sequential `steps` and fan-out-style `branches` no longer duplicate the same
+  stages.
+- `STREAMING_ENABLED` is wired for `/qa/stream`, and stream events now share the
+  final `run_id`.
+- Deleted settings/code from the earlier review are actually gone:
+  `USE_CELERY_WORKER`, `OBSERVABILITY_BACKEND`, `PRIVACY_PURPOSE` and
+  `text_for_purpose`.
+
+**Remaining issues before a broad Phase 4.**
+- There is no Phase 4 scope in the implementation guide. A new phase should be
+  defined before implementation starts.
+- Document metadata/status/extraction outputs are still process-local. This is
+  the main blocker to enabling real Celery dispatch.
+- Upload bytes are still represented as `content_hex` in the Celery canvas
+  scaffold. Real async processing should pass durable upload storage references.
+- Worker imports are Docker/test-safe, but plain local worker commands need
+  `PYTHONPATH=backend` until the package layout is refactored.
+- Evaluation results are async but still process-memory only; they disappear on
+  restart.
+- No Redis/Celery integration test currently launches a real broker/worker.
+
+**Readiness decision.**
+- Phase 3 is demo-ready and internally cleaner after the latest fixes.
+- The project is **not ready for a broad Phase 4** until that phase is defined.
+  If Phase 4 is added, the first scope should be durable document state,
+  durable upload storage, feature-flagged Celery dispatch, and optional
+  integration tests.
+
+**Tests / verification.**
+- `ruff format --check .`: clean after formatting `backend/app/api/routes_qa.py`.
+- `ruff check .`: clean.
+- `ENABLE_LLM=false EMBEDDING_BACKEND=hash VECTOR_STORE_BACKEND=memory uv run pytest`:
+  **42 passed, 1 skipped**.
+- Offline eval: completed; hit@5 1.0 · citation 1.0 · rejection 0.8 · support
+  check 1.0 · extraction 1.0.
+- `uv lock --check`: clean.
+- `docker compose config --quiet`: clean.
+
+---
+
+## 2026-06-06 — Phase 3 deep review: all findings fixed (high/medium/low)
+
+**Context.** A second, independent Phase 3 review verified the earlier self-review
+and found issues it missed (a tautological trust gate, a cost/DoS hole, an
+inverted Celery canvas, duplicated status structures, dead config). All fixed.
+
+**High.**
+- **Support check can now actually reject.** It was structurally a no-op: on the
+  success path, citation-integrity is guaranteed by `map_citations`, so the gate
+  could only ever pass (`support_check_pass_rate` was 1.0 by construction). Added
+  a deterministic **grounding** layer (`critic.py`): the answer must share
+  ≥ `SUPPORT_CHECK_MIN_OVERLAP` content tokens with its cited chunk text, so an
+  answer that cites context it did not use is rejected. Lexical, not semantic —
+  documented as such.
+- **`/evaluation/run` is no longer a sync cost/DoS hole.** It now returns
+  `202 {evaluation_id}` and runs **asynchronously** (`GET /evaluation/{id}` for
+  the result), is **forced offline** (never makes paid LLM calls regardless of
+  `.env` — it previously used ambient settings), guards an empty corpus
+  (`status: no_dataset`), and guards the previously-unguarded extraction
+  subscript. `data/` is now shipped in the Docker image so the endpoint isn't
+  degenerate in-container. Eval logic was de-duplicated: `scripts/run_evaluation.py`
+  now calls the shared `run_offline_evaluation()`.
+- **Celery canvas de-landmined.** The chord header (`parse_privacy_chunk`) no
+  longer runs the real pipeline into a process-local, API-invisible
+  `DocumentService`. Added `build_document_canvas()` assembling the correct
+  `chain → chord(group(branches), aggregate).on_error(...)` shape (reviewable,
+  not dispatched until durable state exists). The no-Celery fallback's
+  `.delay`/`.s` now raise instead of returning fake signatures / running inline.
+
+**Medium.**
+- **Steps vs branches no longer overlap.** `steps` is now the sequential
+  pre-fan-out lifecycle (`parsing`, `privacy_processing`, `chunking`); the
+  fan-out stages (`embedding`, `extracting`, `summarising`) are tracked only as
+  `branches`. Removed the double `_set_step`/`_set_branch` bookkeeping.
+- **`STREAMING_ENABLED` is wired**: `/qa/stream` returns 404 when disabled.
+
+**Low.**
+- Stream status events now carry the real `run_id` (generated before streaming)
+  instead of `"pending"`, so they correlate with the final event.
+- Deleted genuinely-dead config/code: `use_celery_worker`, `observability_backend`,
+  `privacy_purpose` settings and `text_for_purpose()`/`PrivacyPurpose`.
+- Docs (architecture, privacy, evaluation) updated to match: support check =
+  integrity + grounding; privacy variants without a runtime purpose switch;
+  async evaluation endpoint.
+
+**Tests / verification.**
+- Added grounding-rejection and async-evaluation tests; updated step/branch and
+  eval-API tests. `pytest`: **42 passed, 1 skipped**. ruff clean. Offline eval
+  unchanged in shape (hit@5 1.0 · citation 1.0 · rejection 0.8 · support 1.0 ·
+  extraction 1.0); `support_check_pass_rate` 1.0 is now legitimate (extractive
+  answers are grounded) rather than tautological. Celery dispatch and durable
+  cross-process document state remain intentionally deferred.
+
+---
+
+## 2026-06-06 — Phase 3 critical review
+
+**Context.** A critical review checked the Phase 3 code against the implementation
+plan, looking for missing pieces, overclaims, dead configuration, duplicated
+paths and refactoring opportunities.
+
+**Findings.**
+- **Celery is scaffolded, not true fan-out.** `worker/tasks.py` defines task
+  contracts and an errback, but no API path dispatches a Celery group/chord and
+  the branch tasks are currently no-op status payload transforms. The real
+  upload path remains the in-process `DocumentService` worker thread.
+- **Durable worker state is still missing.** Document metadata, extraction
+  results and status remain process-local. Running upload processing in a
+  separate Celery worker would make backend reads unreliable until document
+  metadata/status are persisted.
+- **Broker payload design is not production-safe yet.** The worker seed task
+  accepts raw file bytes as hex. For real async processing, uploads should be
+  stored in durable object/blob storage and tasks should pass document IDs or
+  storage keys, not raw document contents through Redis.
+- **Streaming is status-then-final, not token streaming.** `/qa/stream` correctly
+  avoids streaming unverified answer tokens, but its status events are generic
+  and not wired to live retrieval/generation progress. `STREAMING_ENABLED` is
+  currently reserved configuration.
+- **Support check is citation-integrity checking.** The gate verifies that final
+  answers have mapped citations from retrieved context. It does not prove
+  semantic entailment and will not catch every cited-but-wrong answer.
+- **Purpose-scoped privacy is a helper, not a full data model.**
+  `raw`/`ai_processing`/`display` variants exist at the helper level, but the
+  service does not persist separate variants or use `PRIVACY_PURPOSE` to choose
+  between them.
+- **Optional observability is not integrated.** `OBSERVABILITY_BACKEND` is a
+  reserved setting only; Langfuse/Phoenix exporters are not wired.
+- **Plan structure drift.** The Phase 3 plan lists
+  `scripts/generate_eval_dataset.py`, but the implementation intentionally kept
+  evaluation manual/synthetic and did not add a dataset generator.
+- **Test gaps remain.** Phase 3 tests cover contracts and response shapes, but
+  they do not run a real Redis/Celery worker, assert true chord fan-out, or prove
+  semantic support checking.
+
+**Recommended fix order.**
+1. Persist document metadata/status before enabling Celery as the default upload
+   path.
+2. Replace broker-passed file bytes with durable upload storage references.
+3. Implement a real Celery canvas (`group`/`chord`) only after durable state
+   exists.
+4. Either wire or remove reserved settings:
+   `USE_CELERY_WORKER`, `STREAMING_ENABLED`, `OBSERVABILITY_BACKEND` and
+   `PRIVACY_PURPOSE`.
+5. Add a semantic support critic or rename the current gate as citation-integrity
+   checking in user-facing docs.
+6. Add integration tests for Docker/Redis/Celery only if they can run reliably
+   outside the normal unit-test gate.
+
+**Documentation changes.**
+- Updated architecture, limitations and implementation-plan notes to avoid
+  overstating Phase 3 scope.
+
+---
+
+## 2026-06-06 — Phase 3 production-style hardening
+
+**Context.** Phase 2 was clean enough to add production-style hardening without
+turning the project into an unfinished platform.
+
+**Changes.**
+- Added Redis and a Celery worker service to Docker Compose.
+- Added `worker/` with Celery app creation, branch task names, aggregate task and
+  chord errback contract. Imports remain safe in test environments.
+- Added branch-level document status for embedding, extraction and summarisation.
+- Added `POST /qa/stream` NDJSON streaming for Streamlit; it emits status events
+  first and only emits the final answer after backend citation/support checks.
+- Added deterministic support-check gate after citation mapping.
+- Added `POST /evaluation/run` and moved shared evaluation logic into the app.
+- Added support-check pass rate to the offline evaluation report.
+- Added purpose-scoped privacy helper and bumped privacy policy to
+  `phase3-purpose-v1`.
+- Added AWS deployment notes and richer evaluation docs.
+
+**Scope line.**
+- The API still defaults to the in-process upload path for demo reliability.
+  Redis/Celery wiring is present and runnable, but fully durable cross-process
+  document metadata/status remains future production hardening.
+
+**Tests / verification.**
+- `ruff format --check .`: clean.
+- `ruff check .`: clean.
+- `ENABLE_LLM=false EMBEDDING_BACKEND=hash VECTOR_STORE_BACKEND=memory uv run pytest`:
+  **40 passed, 1 skipped**.
+- Offline eval: hit@5 1.0 · citation 1.0 · rejection 0.8 · support check 1.0 ·
+  extraction 1.0.
+- `alembic upgrade head --sql`: still emits the pgvector `vector(1536)` schema
+  and HNSW cosine index.
+- `docker compose config`: confirms Redis and worker services plus backend
+  `EMBEDDING_BACKEND=hash` / `VECTOR_STORE_BACKEND=postgres`.
+
+---
+
 ## 2026-06-06 — Phase 2 readiness blockers fixed before Phase 3
 
 **Context.** A Phase 2 readiness review found the local test gate was clean, but

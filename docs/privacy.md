@@ -1,14 +1,21 @@
 # Privacy
 
-Phase 2 adds purpose-scoped text handling without overclaiming compliance.
+Phase 3 keeps privacy purpose-scoped without overclaiming compliance.
 
 ## Text Variants
 
-- `raw_text`: parsed source text used for local parsing only.
-- `ai_text`: high-risk identifiers redacted before AI and embedding use.
-- `display_text`: redacted text suitable for source snippets.
+`apply_basic_privacy` produces three variants per document:
 
-The current policy version is `phase2-basic-v1`.
+- `raw_text`: parsed source text, used for local processing only — never
+  persisted, logged, or displayed.
+- `ai_text`: high-risk identifiers redacted; used for extraction, summarisation
+  and embeddings.
+- `display_text`: the redacted text used for citation snippets and UI rendering.
+
+In the current policy (`phase3-purpose-v1`) `ai_text` and `display_text` are
+identical (both redacted); they are kept as separate fields so a future policy
+can diverge them (e.g. preserve more in `ai_text` than in `display_text`) without
+a schema change. The pipeline does not expose a runtime "purpose" switch.
 
 ## Redacted Patterns
 

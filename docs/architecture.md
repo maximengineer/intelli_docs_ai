@@ -1,6 +1,6 @@
 # Architecture
 
-IntelliDocs AI is currently a Phase 2 production-style portfolio implementation.
+IntelliDocs AI is currently a Phase 3 production-style portfolio implementation.
 
 ## Ingestion
 
@@ -13,12 +13,17 @@ POST /documents/upload
   -> extracts typed fields
   -> summarises
   -> embeds chunks
+  -> updates branch-level status
   -> marks document completed or failed
 ```
 
 `GET /documents/{document_id}/status` exposes document status plus processing
-steps. This is intentionally simpler than Celery; durable fan-out is a Phase 3
-concern.
+steps and branch statuses. Docker Compose includes Redis and a Celery worker
+service; the default API path stays in-process for demo reliability, while
+`worker/tasks.py` documents the chord header, branch and errback contracts.
+The API does not currently dispatch a real Celery group/chord because document
+metadata and status are still process-local. Making Celery the default path
+requires durable document metadata/status first.
 
 ## Query
 
@@ -28,11 +33,26 @@ POST /qa
   -> rerank candidates
   -> generate answer with <cite index="...">
   -> backend validates citation indexes
+  -> support-check gate: citation integrity + lexical grounding overlap
   -> return real source metadata and run metrics
 ```
 
+The support-check gate has two deterministic layers: citation integrity (cited
+chunk IDs must belong to retrieved context) and grounding (the answer must share
+content tokens with the chunk text it cites, so an answer that cites context it
+did not use is rejected). It is lexical, not semantic entailment.
+
+`POST /evaluation/run` starts a forced-offline evaluation asynchronously and
+returns an `evaluation_id`; poll `GET /evaluation/{evaluation_id}` for the
+result. It never makes paid LLM calls regardless of `.env`.
+
 The citation mapper is the trust boundary. LLMs never provide document IDs,
 chunk IDs, filenames, or page numbers directly.
+
+`POST /qa/stream` is Streamlit-compatible NDJSON status-then-final streaming. It
+emits status events first and only streams the final verified answer after
+citation mapping and support checking. It intentionally does not stream answer
+tokens before verification.
 
 ## Storage
 
@@ -48,8 +68,8 @@ the retrieval slice** — chunks and embeddings:
 Document-level metadata (summary, extracted fields, status, processing steps)
 remains in the in-memory `DocumentService`. So in Postgres mode, chunks survive a
 restart and `/qa` still answers, but `GET /documents/{id}` is only populated for
-the current process. **Durable document state is a Phase 3 concern** — this is a
-deliberate scope line, not an oversight.
+the current process. Full durable document metadata remains a future production
+hardening item.
 
 Vector choices (configurable via `POSTGRES_VECTOR_*`):
 

@@ -29,8 +29,10 @@ Upload documents -> extract facts -> ask questions -> get cited answers -> run e
 - LLM behind an adapter: OpenRouter (OpenAI-compatible) for generation/extraction/summaries, with a deterministic offline fallback
 - Embeddings behind an adapter: local `sentence-transformers`, OpenRouter embeddings, or a hash fallback; vector search with embeddings precomputed at upload
 - Backend-enforced citation mapping (validates the LLM-chosen indexes)
-- Phase 2 PostgreSQL/pgvector vector-store runtime path with Alembic migration
-- structured run metrics, lexical reranking, privacy text variants and extraction confidence gates
+- PostgreSQL/pgvector vector-store runtime path with Alembic migration
+- Celery/Redis worker scaffold with branch-level document status
+- Streamlit-compatible verified Q&A streaming
+- support-check gate, structured run metrics, lexical reranking, privacy text variants and extraction confidence gates
 - Pytest tests (LLM paths covered with a fake client — no real network calls); ruff-linted
 - Docker Compose
 
@@ -110,8 +112,9 @@ Current snapshot — **offline, no API key** (extractive answerer; `EMBEDDING_BA
   "document_hit_at_5": 1.0,
   "citation_coverage": 1.0,
   "unsupported_answer_rejection_rate": 0.8,
+  "support_check_pass_rate": 1.0,
   "extraction_field_accuracy": 1.0,
-  "average_latency_ms": 2.52
+  "average_latency_ms": 3.79
 }
 ```
 
@@ -121,15 +124,15 @@ Local semantic embeddings (`EMBEDDING_BACKEND=local`) score **identically** on t
 
 ## Architecture
 
-The current implementation is Phase 2:
+The current implementation is Phase 3:
 
 ```text
 FastAPI upload -> queued task -> parser -> privacy variants -> chunker
-  -> extract -> summarise -> embed at upload -> vector index
-Question -> retriever -> reranker -> answer generator -> citation mapper -> API response + metrics
+  -> extract -> summarise -> embed at upload -> branch status -> vector index
+Question -> retriever -> reranker -> answer generator -> citation mapper -> support gate -> API response + metrics
 ```
 
-All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter or on deterministic offline fallbacks selected by config. The default local development path remains in-memory for easy use; Docker/Phase 2 can run retrieval against PostgreSQL/pgvector with `VECTOR_STORE_BACKEND=postgres`.
+All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter or on deterministic offline fallbacks selected by config. The default local development path remains in-memory for easy use; Docker can run retrieval against PostgreSQL/pgvector with `VECTOR_STORE_BACKEND=postgres`.
 
 The citation mapper is the trust boundary. The generator only emits placeholders such as `<cite index="0">`; the backend validates each index against the retrieved context and maps it to real document ID, filename, page, section, chunk ID and snippet metadata. An out-of-range index (which a real model can produce) is rejected and downgraded to the insufficient-information fallback rather than shown.
 
@@ -140,11 +143,11 @@ plan-vs-reality deviations is in `docs/dev_log.md`.
 
 ## Future Improvements
 
-- Streamlit-compatible verified streaming
-- Celery + Redis branch fan-out
-- support-check critic gate
+- durable document metadata outside process memory
+- durable evaluation history outside process memory
+- real Celery upload dispatch after durable document state exists
 - richer evaluator-based answer quality scoring
-- production deployment notes
+- optional Langfuse/Phoenix integration
 
 ## Resume Bullets
 
