@@ -60,6 +60,9 @@ class InMemoryVectorStore:
             self._vectors.update(stored)
 
     def remove(self, document_id: str) -> None:
+        self.remove_chunks(document_id)
+
+    def remove_chunks(self, document_id: str) -> None:
         with self._lock:
             self._vectors.pop(document_id, None)
 
@@ -98,14 +101,14 @@ class InMemoryVectorStore:
 
 
 class PgVectorStore:
-    """PostgreSQL/pgvector store for chunks + embeddings (the durable Phase 2 slice).
+    """PostgreSQL/pgvector store for chunk embeddings.
 
-    Only chunk/embedding data is persisted here; document-level metadata and
-    processing status remain in the in-memory DocumentService (Phase 3 adds
-    durable document state). The schema mirrors the Alembic migration, which is
-    the source of truth for managed deployments; this self-init exists so a local
-    ``docker compose up`` works without a manual migration step. Schema creation
-    is lazy (first use), so importing the app never opens a database connection.
+    Phase 4 persists document state through ``DocumentRepository`` and stores
+    chunk rows in the same ``document_chunks`` table. The repository writes chunk
+    text/metadata first; this store fills or updates the embedding column and
+    handles vector search. Runtime self-init exists so ``docker compose up`` works
+    without a manual migration step, while Alembic remains the managed-deployment
+    schema path.
     """
 
     def __init__(self, database_url: str, embedding_model: EmbeddingModel | None = None) -> None:
@@ -122,6 +125,9 @@ class PgVectorStore:
         if not chunks:
             return
         self._ensure_schema()
+        # Phase 4 keeps chunk text/metadata in DocumentRepository.save_chunks and
+        # lets this store fill/update embeddings on the same rows. Reordering that
+        # flow can overwrite embeddings with nulls.
         vectors = self.embedding_model.embed_batch([chunk.text for chunk in chunks])
         rows = []
         for chunk, vector in zip(chunks, vectors, strict=True):
@@ -173,6 +179,9 @@ class PgVectorStore:
             connection.commit()
 
     def remove(self, document_id: str) -> None:
+        self.remove_chunks(document_id)
+
+    def remove_chunks(self, document_id: str) -> None:
         self._ensure_schema()
         import psycopg
 
