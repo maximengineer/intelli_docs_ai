@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -77,11 +78,37 @@ if document:
 st.divider()
 st.subheader("Ask A Source-Grounded Question")
 question = st.text_input("Question", placeholder="Which invoices are above 10,000 EUR?")
+use_streaming = st.toggle("Use verified streaming", value=True)
 if st.button("Ask", disabled=not question):
-    with st.spinner("Retrieving evidence and generating answer"):
-        response = requests.post(f"{API_URL}/qa", json={"question": question}, timeout=60)
-    if response.ok:
-        result = response.json()
+    if use_streaming:
+        status_box = st.empty()
+        result = None
+        with requests.post(
+            f"{API_URL}/qa/stream",
+            json={"question": question},
+            stream=True,
+            timeout=60,
+        ) as response:
+            if response.ok:
+                for line in response.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    event = json.loads(line)
+                    if event["event"] == "status":
+                        status_box.info(event["message"].replace("_", " "))
+                    elif event["event"] == "final":
+                        result = event["response"]
+                status_box.empty()
+            else:
+                st.error(response.text)
+    else:
+        with st.spinner("Retrieving evidence and generating answer"):
+            response = requests.post(f"{API_URL}/qa", json={"question": question}, timeout=60)
+        result = response.json() if response.ok else None
+        if not response.ok:
+            st.error(response.text)
+
+    if result:
         if result["status"] == "insufficient_information":
             st.warning(result["answer"])
         elif result["status"] == "failed":
@@ -104,5 +131,3 @@ if st.button("Ask", disabled=not question):
                     ]
                 )
             )
-    else:
-        st.error(response.text)

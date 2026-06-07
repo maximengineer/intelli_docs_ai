@@ -50,3 +50,12 @@ class QAMetrics(BaseModel):
     estimated_cost_usd: float
     price_table_as_of: str
     reranker_enabled: bool
+    support_check_passed: bool | None = None
+    support_check_reason: str | None = None
+
+
+class QAStreamEvent(BaseModel):
+    event: Literal["status", "final"]
+    run_id: str
+    message: str
+    response: QAResponse | None = None

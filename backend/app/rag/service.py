@@ -10,6 +10,7 @@ from app.llm.client import LLMClient, get_llm_client
 from app.observability.costs import TokenUsage, estimate_cost_usd, estimate_tokens
 from app.observability.run_logger import log_run_event
 from app.rag.citations import map_citations
+from app.rag.critic import SupportCheckResult, check_answer_support
 from app.rag.generator import FALLBACK_ANSWER, generate_answer_with_placeholders
 from app.rag.retriever import Retriever
 from app.rag.schemas import QAMetrics, QARequest, QAResponse, RetrievedChunk
@@ -17,14 +18,18 @@ from app.rag.schemas import QAMetrics, QARequest, QAResponse, RetrievedChunk
 logger = logging.getLogger(__name__)
 
 
+def new_run_id() -> str:
+    return "run_" + uuid.uuid4().hex[:16]
+
+
 class QAService:
     def __init__(self, retriever: Retriever, llm_client: LLMClient | None = None) -> None:
         self.retriever = retriever
         self.llm_client = llm_client if llm_client is not None else get_llm_client()
 
-    def answer(self, request: QARequest) -> QAResponse:
+    def answer(self, request: QARequest, run_id: str | None = None) -> QAResponse:
         started = time.perf_counter()
-        run_id = "run_" + uuid.uuid4().hex[:16]
+        run_id = run_id or new_run_id()
         try:
             if self.llm_client is not None:
                 self.llm_client.pop_usage()  # clear any stale per-thread usage
@@ -42,6 +47,10 @@ class QAService:
                     candidates_retrieved=len(retrieval.candidates),
                     answer=FALLBACK_ANSWER,
                     citation_count=0,
+                    support_check=SupportCheckResult(
+                        supported=False,
+                        reason="relevance_below_threshold",
+                    ),
                 )
                 return self._insufficient(run_id, metrics)
 
@@ -56,6 +65,23 @@ class QAService:
                     candidates_retrieved=len(retrieval.candidates),
                     answer=FALLBACK_ANSWER,
                     citation_count=0,
+                    support_check=SupportCheckResult(
+                        supported=False,
+                        reason="citation_mapping_failed",
+                    ),
+                )
+                return self._insufficient(run_id, metrics)
+            support_check = check_answer_support(answer, sources, context)
+            if not support_check.supported:
+                metrics = self._metrics(
+                    run_id=run_id,
+                    started=started,
+                    question=request.question,
+                    context=context,
+                    candidates_retrieved=len(retrieval.candidates),
+                    answer=FALLBACK_ANSWER,
+                    citation_count=0,
+                    support_check=support_check,
                 )
                 return self._insufficient(run_id, metrics)
             metrics = self._metrics(
@@ -66,6 +92,7 @@ class QAService:
                 candidates_retrieved=len(retrieval.candidates),
                 answer=answer,
                 citation_count=len(sources),
+                support_check=support_check,
             )
             return QAResponse(
                 run_id=run_id,
@@ -91,6 +118,7 @@ class QAService:
         candidates_retrieved: int,
         answer: str,
         citation_count: int,
+        support_check: SupportCheckResult | None = None,
     ) -> QAMetrics:
         settings = get_settings()
         usage = self.llm_client.pop_usage() if self.llm_client is not None else None
@@ -114,6 +142,8 @@ class QAService:
             estimated_cost_usd=estimate_cost_usd(usage),
             price_table_as_of=settings.price_table_as_of,
             reranker_enabled=settings.reranker_enabled,
+            support_check_passed=support_check.supported if support_check else None,
+            support_check_reason=support_check.reason if support_check else None,
         )
         log_run_event(run_id=run_id, event="qa_metrics", **metrics.model_dump())
         return metrics
