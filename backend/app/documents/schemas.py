@@ -51,20 +51,27 @@ DocumentStatus = Literal[
     "failed",
 ]
 
+# Sequential pre-fan-out lifecycle steps. The fan-out stages (embedding,
+# extracting, summarising) are tracked separately as branches, so a stage is
+# never duplicated across both structures.
 ProcessingStepName = Literal[
     "parsing",
     "privacy_processing",
     "chunking",
-    "embedding",
-    "extracting",
-    "summarising",
 ]
 
 ProcessingStepStatus = Literal["pending", "running", "completed", "failed"]
+BranchStatusName = Literal["embedding", "extracting", "summarising"]
 
 
 class ProcessingStep(BaseModel):
     name: ProcessingStepName
+    status: ProcessingStepStatus = "pending"
+    error: str | None = None
+
+
+class BranchStatus(BaseModel):
+    name: BranchStatusName
     status: ProcessingStepStatus = "pending"
     error: str | None = None
 
@@ -82,6 +89,7 @@ class DocumentStatusResponse(BaseModel):
     status: DocumentStatus
     needs_review: bool = False
     steps: list[ProcessingStep]
+    branches: list[BranchStatus] = Field(default_factory=list)
     error: str | None = None
 
 

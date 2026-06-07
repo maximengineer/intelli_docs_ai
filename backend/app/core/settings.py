@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     postgres_vector_operator_class: str = "vector_cosine_ops"
     postgres_vector_index_type: str = "hnsw"
 
+    # --- Phase 3 hardening ---------------------------------------------------
+    celery_broker_url: str = "redis://redis:6379/0"
+    celery_result_backend: str = "redis://redis:6379/1"
+    support_check_enabled: bool = True
+    support_check_min_citation_count: int = Field(default=1, ge=0)
+    # Minimum number of shared content tokens between the answer and its cited
+    # chunk text. This is the signal that lets the gate actually reject an answer
+    # that cites context it did not use (0 = grounding check disabled).
+    support_check_min_overlap: int = Field(default=1, ge=0)
+    streaming_enabled: bool = True
+
     # --- Phase 2 cost estimation ------------------------------------------
     price_table_as_of: str = "2026-06-06"
     llm_input_price_per_1m_tokens: float = 0.0

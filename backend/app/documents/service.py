@@ -15,6 +15,8 @@ from app.documents.extractor import extract_fields
 from app.documents.parser import parse_document_with_timeout
 from app.documents.privacy import apply_basic_privacy
 from app.documents.schemas import (
+    BranchStatus,
+    BranchStatusName,
     DocumentChunk,
     DocumentResponse,
     DocumentStatus,
@@ -38,10 +40,8 @@ STEP_NAMES: tuple[ProcessingStepName, ...] = (
     "parsing",
     "privacy_processing",
     "chunking",
-    "embedding",
-    "extracting",
-    "summarising",
 )
+BRANCH_NAMES: tuple[BranchStatusName, ...] = ("embedding", "extracting", "summarising")
 
 
 class DocumentService:
@@ -123,6 +123,7 @@ class DocumentService:
                 filename=safe_name,
                 status="queued",
                 steps=[ProcessingStep(name=name) for name in STEP_NAMES],
+                branches=[BranchStatus(name=name) for name in BRANCH_NAMES],
             )
 
         future = self._executor_handle().submit(
@@ -188,20 +189,23 @@ class DocumentService:
             chunks = chunk_document(ai_parsed)
             self._set_step(document_id, "chunking", "completed")
 
+            # Fan-out stages are tracked as branches (document status stays
+            # "processing"); they run sequentially here but model the points a
+            # real Celery group/chord would parallelise.
             self._set_document_status(document_id, "processing")
-            self._set_step(document_id, "extracting", "running")
+            self._set_branch(document_id, "extracting", "running")
             fields = extract_fields(privacy_texts.ai_text, self._llm_client)
             confidence, needs_review = extraction_confidence(fields)
-            self._set_step(document_id, "extracting", "completed")
+            self._set_branch(document_id, "extracting", "completed")
 
-            self._set_step(document_id, "summarising", "running")
+            self._set_branch(document_id, "summarising", "running")
             summary = summarize_document(privacy_texts.ai_text, self._llm_client)
-            self._set_step(document_id, "summarising", "completed")
+            self._set_branch(document_id, "summarising", "completed")
 
-            self._set_step(document_id, "embedding", "running")
+            self._set_branch(document_id, "embedding", "running")
             self._vector_store.remove(document_id)
             self._vector_store.index(chunks)
-            self._set_step(document_id, "embedding", "completed")
+            self._set_branch(document_id, "embedding", "completed")
 
             document = DocumentResponse(
                 document_id=document_id,
@@ -281,6 +285,7 @@ class DocumentService:
                 filename=filename,
                 status=status,
                 steps=[ProcessingStep(name=name) for name in STEP_NAMES],
+                branches=[BranchStatus(name=name) for name in BRANCH_NAMES],
             )
 
     def _set_document_status(
@@ -322,6 +327,25 @@ class DocumentService:
             ]
             self._statuses[document_id] = current.model_copy(update={"steps": steps})
 
+    def _set_branch(
+        self,
+        document_id: str,
+        name: BranchStatusName,
+        status: ProcessingStepStatus,
+        error: str | None = None,
+    ) -> None:
+        with self._lock:
+            current = self._statuses.get(document_id)
+            if current is None:
+                return
+            branches = [
+                branch.model_copy(update={"status": status, "error": error})
+                if branch.name == name
+                else branch
+                for branch in current.branches
+            ]
+            self._statuses[document_id] = current.model_copy(update={"branches": branches})
+
     def _fail_running_step(self, document_id: str, error: str) -> None:
         with self._lock:
             current = self._statuses.get(document_id)
@@ -333,7 +357,15 @@ class DocumentService:
                 else step
                 for step in current.steps
             ]
-            self._statuses[document_id] = current.model_copy(update={"steps": steps})
+            branches = [
+                branch.model_copy(update={"status": "failed", "error": error})
+                if branch.status == "running"
+                else branch
+                for branch in current.branches
+            ]
+            self._statuses[document_id] = current.model_copy(
+                update={"steps": steps, "branches": branches}
+            )
 
     def _record_task_completion(
         self,

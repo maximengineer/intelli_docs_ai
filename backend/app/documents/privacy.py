@@ -4,7 +4,7 @@ import re
 
 from pydantic import BaseModel
 
-PRIVACY_POLICY_VERSION = "phase2-basic-v1"
+PRIVACY_POLICY_VERSION = "phase3-purpose-v1"
 
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_RE = re.compile(r"\b(?:\+?\d[\d\s().-]{7,}\d)\b")

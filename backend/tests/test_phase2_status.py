@@ -64,8 +64,13 @@ def test_submit_upload_tracks_processing_status() -> None:
     status = service.get_status(upload.document_id)
     assert status is not None
     assert status.document_id == upload.document_id
-    assert {step.name for step in status.steps} >= {"parsing", "embedding", "extracting"}
-    assert "classifying" not in {step.name for step in status.steps}
+    # Sequential lifecycle steps and the fan-out branches are disjoint.
+    assert {step.name for step in status.steps} >= {"parsing", "privacy_processing", "chunking"}
+    assert {branch.name for branch in status.branches} >= {"embedding", "extracting"}
+    step_and_branch_names = {step.name for step in status.steps} | {
+        branch.name for branch in status.branches
+    }
+    assert "classifying" not in step_and_branch_names
     assert document is not None
     assert document.status == "completed"
 
