@@ -2,7 +2,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.settings import get_settings
 from app.documents.schemas import DocumentResponse, DocumentStatusResponse, DocumentUploadResponse
-from app.documents.service import get_document_service
+from app.documents.service import DocumentSubmissionError, get_document_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -40,6 +40,16 @@ def upload_document(file: UploadFile = File(...)) -> DocumentUploadResponse:
 
     try:
         return service.submit_upload(filename=file.filename or "document.txt", content=content)
+    except DocumentSubmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "document_id": exc.document_id,
+                "filename": exc.filename,
+                "status": "failed",
+                "error": exc.message,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

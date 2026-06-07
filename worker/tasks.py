@@ -1,70 +1,84 @@
 from __future__ import annotations
 
+from app.documents.service import get_document_service
+
 from worker.worker import celery_app
 
 
-@celery_app.task(name="intellidocs.parse_privacy_chunk")
-def parse_privacy_chunk(document_id: str, filename: str, content_hex: str) -> dict[str, object]:
-    """Chord header seed (contract scaffold).
-
-    Returns the seed payload that the branch tasks fan out from. It deliberately
-    does NOT run the document pipeline here: doing so would write document
-    metadata into a process-local, API-invisible store. Durable cross-process
-    document state is the prerequisite before this becomes the real upload path,
-    so for now it only validates and forwards the identifiers.
-    """
-
-    bytes.fromhex(content_hex)  # validate payload shape without processing
-    return {"document_id": document_id, "filename": filename}
+@celery_app.task(name="intellidocs.seed_document_from_storage")
+def seed_document_from_storage(
+    document_id: str,
+    filename: str,
+    storage_key: str,
+) -> dict[str, object]:
+    return get_document_service().seed_document_from_storage(document_id, filename, storage_key)
 
 
 @celery_app.task(name="intellidocs.embed_branch")
 def embed_branch(payload: dict[str, object]) -> dict[str, object]:
-    return {**payload, "branch": "embedding", "status": "completed"}
+    document_id = str(payload["document_id"])
+    return get_document_service().run_embedding_branch(document_id)
 
 
 @celery_app.task(name="intellidocs.extract_branch")
 def extract_branch(payload: dict[str, object]) -> dict[str, object]:
-    return {**payload, "branch": "extracting", "status": "completed"}
+    document_id = str(payload["document_id"])
+    return get_document_service().run_extraction_branch(document_id)
 
 
 @celery_app.task(name="intellidocs.summarize_branch")
 def summarize_branch(payload: dict[str, object]) -> dict[str, object]:
-    return {**payload, "branch": "summarising", "status": "completed"}
+    document_id = str(payload["document_id"])
+    return get_document_service().run_summary_branch(document_id)
 
 
 @celery_app.task(name="intellidocs.aggregate_document")
 def aggregate_document(results: list[dict[str, object]]) -> dict[str, object]:
     document_id = str(results[0].get("document_id", "")) if results else ""
-    return {
-        "document_id": document_id,
-        "status": "completed" if results else "failed",
-        "branches": results,
-    }
+    return get_document_service().aggregate_document(document_id)
 
 
 @celery_app.task(name="intellidocs.document_chord_error")
-def document_chord_error(request: object, exc: object, traceback: object) -> dict[str, str]:
-    del traceback
+def document_chord_error(*args: object, **kwargs: object) -> dict[str, str]:
+    document_id = _extract_document_id(args, kwargs)
+    request = args[1] if len(args) > 1 else kwargs.get("request", "")
+    exc = _extract_exception(args, kwargs)
+    get_document_service().mark_document_failed(document_id, str(exc))
     return {
+        "document_id": document_id,
         "status": "failed",
         "request": str(request),
         "error": str(exc),
     }
 
 
-def build_document_canvas(document_id: str, filename: str, content_hex: str):
-    """Assemble the intended Celery canvas: seed -> group(branches) -> aggregate.
+def _extract_document_id(args: tuple[object, ...], kwargs: dict[str, object]) -> str:
+    explicit = kwargs.get("document_id")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    for arg in args:
+        if isinstance(arg, str) and arg.startswith("doc_"):
+            return arg
+    return "unknown_document"
 
-    Returns a real ``chain``/``chord`` so the fan-out shape is reviewable. It is
-    intentionally not dispatched anywhere yet (durable document state is the
-    prerequisite). Requires Celery to be installed.
-    """
+
+def _extract_exception(args: tuple[object, ...], kwargs: dict[str, object]) -> object:
+    explicit = kwargs.get("exc")
+    if explicit is not None:
+        return explicit
+    for arg in args:
+        if isinstance(arg, BaseException):
+            return arg
+    return "Celery chord failed"
+
+
+def build_document_canvas(document_id: str, filename: str, storage_key: str):
+    """Assemble the durable Celery canvas: seed -> group(branches) -> aggregate."""
 
     from celery import chain, chord
 
     branches = [embed_branch.s(), extract_branch.s(), summarize_branch.s()]
     return chain(
-        parse_privacy_chunk.s(document_id, filename, content_hex),
-        chord(branches, aggregate_document.s()).on_error(document_chord_error.s()),
+        seed_document_from_storage.s(document_id, filename, storage_key),
+        chord(branches, aggregate_document.s()).on_error(document_chord_error.s(document_id)),
     )
