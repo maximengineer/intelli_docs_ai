@@ -31,9 +31,11 @@ def stream_question_events(request: QARequest):
 
     # Generate the run_id up front so status events correlate with the final one.
     run_id = new_run_id()
-    yield _json_event(QAStreamEvent(event="status", run_id=run_id, message="retrieving_context"))
     yield _json_event(
-        QAStreamEvent(event="status", run_id=run_id, message="verifying_answer_support")
+        QAStreamEvent(event="status", run_id=run_id, message="accepted_for_verification")
+    )
+    yield _json_event(
+        QAStreamEvent(event="status", run_id=run_id, message="building_verified_answer")
     )
     response = service.answer(request, run_id=run_id)
     yield _json_event(

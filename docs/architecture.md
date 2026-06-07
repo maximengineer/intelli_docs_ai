@@ -1,6 +1,7 @@
 # Architecture
 
-IntelliDocs AI is currently a Phase 4 production-style portfolio implementation.
+IntelliDocs AI is currently a Phase 5 in-progress production-style portfolio
+implementation.
 
 ## Ingestion
 
@@ -82,10 +83,11 @@ result. It never makes paid LLM calls regardless of `.env`.
 The citation mapper is the trust boundary. LLMs never provide document IDs,
 chunk IDs, filenames, or page numbers directly.
 
-`POST /qa/stream` is Streamlit-compatible NDJSON status-then-final streaming. It
-emits status events first and only streams the final verified answer after
-citation mapping and support checking. It intentionally does not stream answer
-tokens before verification.
+`POST /qa/stream` is Streamlit-compatible NDJSON status-then-final streaming.
+The status events are generic progress markers for the verified-answer contract;
+the backend only streams the final answer after retrieval, citation mapping and
+support checking. It intentionally does not stream answer tokens before
+verification.
 
 ## Storage
 
