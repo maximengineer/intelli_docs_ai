@@ -17,7 +17,12 @@ class Settings(BaseSettings):
         "text/plain",
     }
     parser_timeout_seconds: float = Field(default=10.0, gt=0)
-    cors_origins: list[str] = ["http://localhost:8501", "http://127.0.0.1:8501"]
+    cors_origins: list[str] = [
+        "http://localhost:9999",
+        "http://127.0.0.1:9999",
+        "http://localhost:8501",
+        "http://127.0.0.1:8501",
+    ]
     chunk_size_tokens: int = 800
     chunk_overlap_tokens: int = 100
     embedding_dimension: int = 256
@@ -38,6 +43,8 @@ class Settings(BaseSettings):
     # --- Phase 3 hardening ---------------------------------------------------
     celery_broker_url: str = "redis://redis:6379/0"
     celery_result_backend: str = "redis://redis:6379/1"
+    document_processing_backend: Literal["thread", "celery"] = "thread"
+    upload_storage_dir: str = "data/uploads"
     support_check_enabled: bool = True
     support_check_min_citation_count: int = Field(default=1, ge=0)
     # Minimum number of shared content tokens between the answer and its cited
@@ -64,7 +71,7 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=2, ge=0)
     llm_max_input_chars: int = 12_000
     # Sent to OpenRouter for attribution; harmless if left at defaults.
-    llm_referer: str = "http://localhost:8501"
+    llm_referer: str = "http://localhost:9999"
     llm_title: str = "IntelliDocs AI"
 
     # --- Embeddings ---------------------------------------------------------
@@ -84,6 +91,10 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return self.enable_llm and bool(self.openrouter_api_key)
+
+    @property
+    def durable_document_state_enabled(self) -> bool:
+        return self.vector_store_backend == "postgres"
 
     def resolve_embedding_backend(self) -> Literal["local", "openrouter", "hash"]:
         if self.embedding_backend != "auto":

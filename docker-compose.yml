@@ -29,11 +29,16 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
+      ENABLE_LLM: ${ENABLE_LLM:-false}
       EMBEDDING_BACKEND: hash
       REQUIRE_DATABASE_READY: "true"
       VECTOR_STORE_BACKEND: postgres
+      DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
+      UPLOAD_STORAGE_DIR: /app/data/uploads
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - uploads_data:/app/data/uploads
     ports:
       - "${BACKEND_PORT:-7777}:8000"
     healthcheck:
@@ -42,7 +47,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()",
+          "import json, urllib.request; payload=json.load(urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)); raise SystemExit(0 if payload.get('status') == 'ready' else 1)",
         ]
       interval: 10s
       timeout: 5s
@@ -62,10 +67,15 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
+      ENABLE_LLM: ${ENABLE_LLM:-false}
       EMBEDDING_BACKEND: hash
       VECTOR_STORE_BACKEND: postgres
+      DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
+      UPLOAD_STORAGE_DIR: /app/data/uploads
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - uploads_data:/app/data/uploads
     command: celery -A worker.worker.celery_app worker --loglevel=INFO
     depends_on:
       postgres:
@@ -96,14 +106,11 @@ services:
       EMBEDDING_BACKEND: hash
       VECTOR_STORE_BACKEND: memory
       DATABASE_URL: ""
+      DOCUMENT_PROCESSING_BACKEND: thread
+      UPLOAD_STORAGE_DIR: /tmp/intellidocs-test-uploads
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     command: pytest
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
 
   live-tests:
     profiles:
@@ -118,9 +125,13 @@ services:
       DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
       VECTOR_STORE_BACKEND: postgres
       EMBEDDING_BACKEND: ${LIVE_EMBEDDING_BACKEND:-hash}
+      DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
+      UPLOAD_STORAGE_DIR: /app/data/uploads
       LIVE_REQUIRE_PROVIDER_EMBEDDINGS: ${LIVE_REQUIRE_PROVIDER_EMBEDDINGS:-false}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - uploads_data:/app/data/uploads
     command: python scripts/run_live_smoke.py
     depends_on:
       postgres:
@@ -130,3 +141,4 @@ services:
 
 volumes:
   postgres_data:
+  uploads_data:

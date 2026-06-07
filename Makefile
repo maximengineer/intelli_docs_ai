@@ -4,10 +4,11 @@ BACKEND_PORT ?= 7777
 FRONTEND_PORT ?= 9999
 LIVE_EMBEDDING_BACKEND ?= hash
 LIVE_REQUIRE_PROVIDER_EMBEDDINGS ?= false
+KEEP_STACK ?= false
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build up up-alt down restart ps logs logs-backend logs-worker logs-frontend test eval alembic-sql live-test live-test-embeddings config config-all clean
+.PHONY: help build up up-alt down restart ps logs logs-backend logs-worker logs-frontend test eval alembic-sql celery-integration-test live-test live-test-embeddings config config-all clean
 
 help:
 	@echo "IntelliDocs AI Docker workflow"
@@ -28,6 +29,7 @@ help:
 	@echo "  make test                Run deterministic offline tests in Docker"
 	@echo "  make eval                Run offline evaluation in Docker"
 	@echo "  make alembic-sql         Generate Alembic SQL in Docker"
+	@echo "  make celery-integration-test Run opt-in Docker Celery/Postgres integration test"
 	@echo "  make live-test           Run opt-in provider-backed smoke test"
 	@echo "  make live-test-embeddings Run live smoke requiring provider embeddings"
 	@echo "  make config              Validate default Compose config"
@@ -35,6 +37,7 @@ help:
 	@echo ""
 	@echo "Variables:"
 	@echo "  BACKEND_PORT=18000 FRONTEND_PORT=18501 make up"
+	@echo "  KEEP_STACK=true make celery-integration-test"
 	@echo "  LIVE_EMBEDDING_BACKEND=openrouter LIVE_REQUIRE_PROVIDER_EMBEDDINGS=true make live-test"
 
 build:
@@ -74,6 +77,13 @@ eval:
 
 alembic-sql:
 	docker compose --profile test run --rm tests alembic upgrade head --sql
+
+celery-integration-test:
+	set -euo pipefail; \
+	trap 'if [ "$(KEEP_STACK)" != "true" ]; then docker compose down --remove-orphans; fi' EXIT; \
+	ENABLE_LLM=false DOCUMENT_PROCESSING_BACKEND=celery BACKEND_PORT=$(BACKEND_PORT) FRONTEND_PORT=$(FRONTEND_PORT) docker compose up -d --build backend worker; \
+	docker compose --profile test build tests; \
+	docker compose --profile test run --rm -e RUN_CELERY_INTEGRATION=1 -e INTELLIDOCS_API_URL=http://backend:8000 tests pytest backend/tests/integration/test_celery_document_processing.py
 
 live-test:
 	LIVE_EMBEDDING_BACKEND=$(LIVE_EMBEDDING_BACKEND) LIVE_REQUIRE_PROVIDER_EMBEDDINGS=$(LIVE_REQUIRE_PROVIDER_EMBEDDINGS) docker compose --profile live-test run --rm live-tests

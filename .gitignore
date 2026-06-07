@@ -7,10 +7,10 @@
 .venv/
 advanced/
 .env
+data/uploads/
 AGENTS.md
 CLAUDE.md
 intellidocs_ai_implementation_guide.md
 intellidocs_ai_project_plan.md
 __pycache__/
 *.pyc
-

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,8 +56,11 @@ def main() -> None:
             "LIVE_REQUIRE_PROVIDER_EMBEDDINGS=true but the active embedding model is hash."
         )
 
+    run_token = uuid.uuid4().hex
+    live_document = LIVE_DOCUMENT + f"Smoke Run: {run_token}\n".encode()
+
     document_service = DocumentService(llm_client=llm_client)
-    document = document_service.upload("live-smoke-invoice.txt", LIVE_DOCUMENT)
+    document = document_service.upload(f"live-smoke-invoice-{run_token}.txt", live_document)
     if document.status != "completed" or document.chunk_count < 1:
         raise SystemExit(f"Document processing failed: {document.model_dump(mode='json')}")
 
@@ -75,6 +79,7 @@ def main() -> None:
                 "embedding_backend": settings.resolve_embedding_backend(),
                 "embedding_model": getattr(embedding_model, "name", type(embedding_model).__name__),
                 "document_id": document.document_id,
+                "smoke_run": run_token,
                 "document_status": document.status,
                 "chunk_count": document.chunk_count,
                 "qa_status": response.status,

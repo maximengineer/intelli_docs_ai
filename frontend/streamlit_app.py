@@ -33,7 +33,8 @@ with st.sidebar:
 upload = st.session_state.get("document_upload")
 if upload and "document" not in st.session_state:
     with st.spinner("Processing document"):
-        for _ in range(30):
+        status_placeholder = st.empty()
+        for _ in range(240):
             status_response = requests.get(
                 f"{API_URL}/documents/{upload['document_id']}/status",
                 timeout=10,
@@ -55,7 +56,13 @@ if upload and "document" not in st.session_state:
             if current_status["status"] == "failed":
                 st.error(current_status.get("error") or "Document processing failed")
                 break
+            status_placeholder.caption(f"Current status: {current_status['status']}")
             time.sleep(0.5)
+        else:
+            st.info(
+                "Document is still processing. Leave this page open or press Process document "
+                "again later to refresh the status."
+            )
 
 document = st.session_state.get("document")
 if document:
