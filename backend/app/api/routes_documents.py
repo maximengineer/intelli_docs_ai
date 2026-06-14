@@ -19,7 +19,7 @@ def upload_document(file: UploadFile = File(...)) -> DocumentUploadResponse:
     settings = get_settings()
     service = get_document_service()
 
-    content_type = file.content_type or ""
+    content_type = _base_content_type(file.content_type)
     if (
         content_type not in _AMBIGUOUS_MIME_TYPES
         and content_type not in settings.allowed_mime_types
@@ -34,7 +34,7 @@ def upload_document(file: UploadFile = File(...)) -> DocumentUploadResponse:
     content = file.file.read(settings.max_upload_bytes + 1)
     if len(content) > settings.max_upload_bytes:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"File exceeds {settings.max_upload_mb} MB upload limit.",
         )
 
@@ -52,6 +52,10 @@ def upload_document(file: UploadFile = File(...)) -> DocumentUploadResponse:
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _base_content_type(content_type: str | None) -> str:
+    return (content_type or "").split(";", 1)[0].strip().lower()
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)

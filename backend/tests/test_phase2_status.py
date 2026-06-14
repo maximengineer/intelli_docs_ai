@@ -1,9 +1,17 @@
 import time
+from concurrent.futures import Future
 from threading import Event
+from typing import get_args
 
-from app.documents.schemas import DocumentChunk
+from app.documents.schemas import (
+    BranchStatusName,
+    DocumentChunk,
+    DocumentStatus,
+    ProcessingStepName,
+)
 from app.documents.service import DocumentService
 from app.rag.schemas import RetrievedChunk
+from app.storage.repositories import DEFAULT_BRANCHES, DEFAULT_STEPS
 
 
 class BlockingVectorStore:
@@ -49,6 +57,42 @@ class FailingVectorStore:
         return []
 
 
+class ImmediateExecutor:
+    def submit(self, fn, *args, **kwargs):
+        future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:  # pragma: no cover - defensive helper
+            future.set_exception(exc)
+        return future
+
+
+def test_status_model_vocabulary_matches_public_contract() -> None:
+    assert set(get_args(DocumentStatus)) == {
+        "uploaded",
+        "queued",
+        "parsing",
+        "privacy_processing",
+        "chunking",
+        "processing",
+        "completed",
+        "failed",
+    }
+    assert set(get_args(ProcessingStepName)) == {
+        "parsing",
+        "privacy_processing",
+        "chunking",
+    }
+    assert set(get_args(BranchStatusName)) == {
+        "embedding",
+        "extracting",
+        "summarising",
+    }
+    assert "classifying" not in set(get_args(BranchStatusName))
+    assert DEFAULT_STEPS == ("parsing", "privacy_processing", "chunking")
+    assert DEFAULT_BRANCHES == ("embedding", "extracting", "summarising")
+
+
 def test_submit_upload_tracks_processing_status() -> None:
     service = DocumentService()
 
@@ -73,6 +117,22 @@ def test_submit_upload_tracks_processing_status() -> None:
     assert "classifying" not in step_and_branch_names
     assert document is not None
     assert document.status == "completed"
+
+
+def test_completed_thread_task_is_removed_from_tracking(monkeypatch) -> None:
+    service = DocumentService()
+    monkeypatch.setattr(service, "_executor_handle", lambda: ImmediateExecutor())
+
+    upload = service.submit_upload(
+        filename="invoice.txt",
+        content=b"Invoice\nVendor: Immediate Ltd\nTotal Amount: EUR 2,400.00",
+    )
+
+    assert upload.status == "queued"
+    status = service.get_status(upload.document_id)
+    assert status is not None
+    assert status.status == "completed"
+    assert upload.document_id not in service._task_futures
 
 
 def test_duplicate_upload_joins_existing_processing_task() -> None:

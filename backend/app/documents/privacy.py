@@ -12,8 +12,17 @@ PHONE_RE = re.compile(r"\b(?:\+?\d[\d\s().-]{7,}\d)\b")
 # Tighter than a greedy separator run, so it does not swallow arbitrary spaced
 # text or short (<13 digit) phone numbers.
 CARD_RE = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
-ACCOUNT_RE = re.compile(r"\b(?:IBAN|Account|Acct)\s*[:#]?\s*[A-Z0-9 -]{8,34}\b", re.IGNORECASE)
-TAX_ID_RE = re.compile(r"\b(?:Tax ID|VAT|TIN)\s*[:#]?\s*[A-Z0-9 -]{5,24}\b", re.IGNORECASE)
+IBAN_RE = re.compile(r"\bIBAN\s*[:#]?\s*[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]){10,30}\b", re.IGNORECASE)
+ACCOUNT_RE = re.compile(
+    r"\b(?:Account|Acct)\s*(?:(?:No\.?|Number)\s*[:#]?|#|:)\s*"
+    r"(?=[A-Z0-9 -]*\d)[A-Z0-9][A-Z0-9 -]{7,33}\b",
+    re.IGNORECASE,
+)
+TAX_ID_RE = re.compile(
+    r"\b(?:(?:Tax ID|TIN)\s*[:#]?\s*|VAT\s*(?:(?:ID|Number|No\.?)\s*[:#]?|#|:)\s*)"
+    r"(?=[A-Z0-9 -]*\d)[A-Z0-9][A-Z0-9 -]{4,23}\b",
+    re.IGNORECASE,
+)
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 
@@ -48,6 +57,7 @@ def _redact_high_risk(text: str) -> str:
 
     redacted = ISO_DATE_RE.sub(protect_date, text)
     redacted = EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
+    redacted = IBAN_RE.sub("[REDACTED_ACCOUNT]", redacted)
     redacted = CARD_RE.sub("[REDACTED_CARD]", redacted)
     redacted = PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     redacted = ACCOUNT_RE.sub("[REDACTED_ACCOUNT]", redacted)

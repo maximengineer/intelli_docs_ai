@@ -67,9 +67,7 @@ class DocumentService:
         self._task_errors: dict[str, str] = {}
         self._task_futures: dict[str, Future[DocumentResponse]] = {}
         self._lock = Lock()
-        self._llm_client = (
-            get_llm_client() if llm_client is _DEFAULT_LLM_CLIENT else llm_client
-        )
+        self._llm_client = get_llm_client() if llm_client is _DEFAULT_LLM_CLIENT else llm_client
         self._vector_store = vector_store or _build_vector_store()
         self._repository = repository or build_document_repository()
         self._upload_store = upload_store or get_upload_store()
@@ -182,11 +180,11 @@ class DocumentService:
         future = self._executor_handle().submit(
             self._process_document, document_id, safe_name, content
         )
+        with self._lock:
+            self._task_futures[document_id] = future
         future.add_done_callback(
             lambda completed: self._record_task_completion(document_id, completed)
         )
-        with self._lock:
-            self._task_futures[document_id] = future
         return DocumentUploadResponse(
             document_id=document_id,
             task_id=task_id,

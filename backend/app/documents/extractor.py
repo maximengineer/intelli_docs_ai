@@ -13,7 +13,13 @@ from app.llm.prompt_registry import get_prompt
 
 logger = logging.getLogger(__name__)
 
-AMOUNT_RE = re.compile(r"\b(?:EUR|USD|GBP|\$|€|£)\s*([0-9][0-9,]*(?:\.[0-9]{2})?)", re.IGNORECASE)
+AMOUNT_RE = re.compile(
+    r"(?<!\w)(?:(?P<prefix>EUR|USD|GBP|\$|€|£)\s*"
+    r"(?P<prefix_amount>[0-9][0-9,]*(?:\.[0-9]{2})?)|"
+    r"(?P<suffix_amount>[0-9][0-9,]*(?:\.[0-9]{2})?)\s*"
+    r"(?P<suffix>EUR|USD|GBP|\$|€|£))(?!\w)",
+    re.IGNORECASE,
+)
 DATE_RE = re.compile(r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b")
 
 
@@ -80,9 +86,12 @@ def _extract_amount(text: str) -> tuple[float | None, str | None]:
     match = AMOUNT_RE.search(text)
     if not match:
         return None, None
-    prefix = match.group(0).split(match.group(1))[0].strip().upper()
-    currency = {"€": "EUR", "$": "USD", "£": "GBP"}.get(prefix, prefix)
-    amount = float(match.group(1).replace(",", ""))
+    currency_token = (match.group("prefix") or match.group("suffix") or "").upper()
+    amount_text = match.group("prefix_amount") or match.group("suffix_amount")
+    if amount_text is None:
+        return None, None
+    currency = {"€": "EUR", "$": "USD", "£": "GBP"}.get(currency_token, currency_token)
+    amount = float(amount_text.replace(",", ""))
     return amount, currency
 
 
