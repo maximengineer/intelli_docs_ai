@@ -10,7 +10,16 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
   `DATABASE_POOL_TIMEOUT_SECONDS`). This avoids one connection per repository or
   vector-store operation in the Docker/Celery path. It is still a small
   portfolio configuration, not a tuned production pool strategy.
-- The pgvector schema uses a dimensioned `vector(POSTGRES_VECTOR_DIMENSION)` column (default 1536) with a matching HNSW cosine index. Docker uses hash embeddings sized to that configured pgvector dimension so the no-key demo works. For a real semantic embedding model, the dimension must match the active model; changing the embedding model requires updating the setting and running a new migration. Indexing rejects vectors whose length does not match, to fail fast on a mismatch.
+- The pgvector schema uses a dimensioned `vector(POSTGRES_VECTOR_DIMENSION)`
+  column (default 1536) with a matching HNSW cosine index. Docker uses hash
+  embeddings sized to that configured pgvector dimension so the no-key demo
+  works. For a real semantic embedding model, the dimension must match the
+  active model; changing the embedding model requires updating the setting,
+  running a new migration and rebuilding existing embeddings. Indexing and
+  search both reject vectors whose length does not match, to fail fast on a
+  mismatch. Readiness also validates the vector index method and operator class;
+  changing those settings requires a migration that rebuilds the index. Cosine
+  is the only implemented pgvector metric.
 - AI runs through a provider adapter. With an `OPENROUTER_API_KEY` it uses real
   LLM generation/extraction and semantic embeddings; with no key it falls back to
   deterministic local implementations: hash (lexical, non-semantic) embeddings
@@ -31,7 +40,12 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
   `document_chunks.text`. The original raw upload blob is stored in the local
   upload store until processing completes, then removed. The system does not
   persist full enterprise-style immutable raw/AI/display variant history.
-- `STREAMING_ENABLED` is wired for `/qa/stream`; optional observability exporters are not integrated.
+- Observability is lightweight. Q&A run metrics/failures are logged as structured
+  JSON events and returned in API payloads, document processing progress is
+  exposed through status endpoints, and readiness exposes runtime checks. Most
+  operational logs are still plain messages, there is no request-wide trace ID,
+  no metrics endpoint and optional observability exporters are not integrated.
+- `STREAMING_ENABLED` is wired for `/qa/stream`.
 - The worker package imports cleanly in Docker and tests because `PYTHONPATH` includes `/app` and `/app/backend`. Plain local worker commands still need equivalent import paths unless the package layout is refactored further.
 - Fast tests cover API shapes, status branches, support-gate contracts, repository behavior and worker task contracts. They do not launch Redis/Celery by default; the Celery/Postgres integration test is opt-in.
 - The synchronous/thread fallback still uses a parser worker thread; it returns
@@ -41,6 +55,9 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
   hung worker task is marked failed on soft timeout or killed by the worker
   process on hard timeout.
 - TXT, DOCX and digital-native PDF parsing are supported; scanned PDF OCR is out of scope.
-- Upload safety is basic: file size (capped before fully buffering), extension, MIME type and parser timeout checks are implemented, but antivirus scanning is out of scope.
+- Upload safety is basic: file size (capped before fully buffering), extension,
+  MIME type with parameter normalization, parser timeout and temp-file cleanup
+  checks are implemented. Client-provided MIME is an early filter, not a trust
+  boundary; antivirus scanning and magic-byte validation are out of scope.
 - Evaluation data is intentionally small and synthetic, and was manually reviewed before being committed.
 - Metrics are measured by the local evaluation script and should not be treated as benchmark claims.

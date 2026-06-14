@@ -18,6 +18,19 @@ offline evaluator is not a benchmark; it is a smoke test for the demo contract.
 - `extraction_field_accuracy`: expected fields match extracted fields.
 - `average_latency_ms`: local end-to-end latency for the synthetic eval loop.
 
+The report also includes dataset coverage fields:
+
+- `documents_loaded`
+- `questions_evaluated`
+- `negative_questions_evaluated`
+- `expected_extractions_evaluated`
+- `retrieval_questions_scored`
+- `extraction_rows_scored`
+- `missing_expected_filenames`
+
+These fields make dataset drift visible. A missing `expected_filenames` entry
+should not silently disappear into an aggregate score.
+
 ## Running
 
 Docker-first path:
@@ -70,6 +83,12 @@ deterministic extractive answerer:
   "embedding_backend": "hash",
   "llm_enabled": false,
   "documents_loaded": 13,
+  "questions_evaluated": 7,
+  "negative_questions_evaluated": 5,
+  "expected_extractions_evaluated": 8,
+  "retrieval_questions_scored": 7,
+  "extraction_rows_scored": 8,
+  "missing_expected_filenames": [],
   "document_hit_at_5": 1.0,
   "citation_coverage": 1.0,
   "unsupported_answer_rejection_rate": 0.8,

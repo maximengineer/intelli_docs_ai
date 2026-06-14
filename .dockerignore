@@ -7,6 +7,8 @@
 .uv-cache/
 .venv/
 advanced/
+data/uploads/
+data/evaluation/generated_candidates/
 __pycache__/
 *.pyc
 

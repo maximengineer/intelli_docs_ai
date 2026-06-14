@@ -116,10 +116,13 @@ processing steps, branch statuses, chunks, embeddings and evaluation runs.
 on every call in Postgres mode, so backend reads see writes made by a separate
 Celery worker process.
 
-Vector choices (configurable via `POSTGRES_VECTOR_*`):
+Vector choices:
 
 - embedding dimension: `1536` (default; must match the embedding model)
 - distance metric: cosine, operator class `vector_cosine_ops`, index type `hnsw`
+
+Cosine is the only implemented pgvector metric. Supporting L2/IP would require
+changing the SQL operator, operator class and tests together.
 
 The schema is created by Alembic migrations (canonical for managed deploys) and
 self-created by `/ready`, the repository, or `PgVectorStore` on first use
@@ -128,7 +131,10 @@ advisory lock so concurrent Celery branches do not deadlock during self-create.
 The migrations use `IF NOT EXISTS` for the runtime-created objects, so running
 Alembic later against a Docker demo database does not fail on already-existing
 tables or indexes.
-Changing the embedding model's dimension requires a new migration.
+Readiness verifies the vector column dimension plus the embedding index method
+and operator class, because `CREATE INDEX IF NOT EXISTS` will not replace a
+stale index with the same name. Changing the embedding model's dimension or the
+pgvector index/operator configuration requires a new migration.
 
 Postgres access goes through a bounded per-process psycopg connection pool,
 configured with `DATABASE_POOL_MIN_SIZE`, `DATABASE_POOL_MAX_SIZE` and
@@ -145,3 +151,25 @@ The runtime schema helper and Alembic migrations intentionally duplicate the
 small amount of DDL needed for the Docker demo path. Do not make Alembic import
 runtime application code; instead keep the duplication constrained to storage
 schema creation and verify both paths when changing durable state.
+
+## Observability
+
+The project uses lightweight production-style observability rather than a full
+telemetry platform. Standard application logs go to stdout/stderr with timestamp,
+level, logger name and message so Docker, VPS or cloud log collection can pick
+them up.
+
+Q&A emits structured JSON run events through the `intellidocs.run` logger for
+run metrics and failures. The API response also returns run metrics including
+latency, candidate/context counts, citation count, model name, token usage
+source, estimated cost, reranker status and support-check result.
+
+Document ingestion progress is primarily observed through
+`GET /documents/{document_id}/status`, which exposes the document status,
+sequential processing steps, branch statuses, branch errors, backend and task
+ID. `/ready` reports configuration, database, pgvector and Celery connectivity
+checks for Docker/runtime diagnostics.
+
+Raw document text, prompts and uploaded file content are not logged. Optional
+observability exporters such as OpenTelemetry, Prometheus, Langfuse or Phoenix
+are not integrated in this portfolio scope.

@@ -6,6 +6,637 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-14 — Final implementation advice appendix audit
+
+**Context.** Rechecked the implementation guide final advice section against
+the completed Phase 5 scope, Definition of Done appendix, README future
+improvements and current limitations.
+
+**Changes.**
+- Confirmed the old final advice was duplicated with the project mantra and read
+  like pre-build guidance after the project had already reached the finished
+  portfolio-demo scope.
+- Updated the ignored implementation guide section to `Appendix U: Final
+  Maintenance Guidance`.
+- Reframed the ending around preserving the core demo, preferring fixes over
+  scope expansion, keeping future additions narrow and documenting future change
+  discipline.
+
+**Tests / verification.**
+- Confirmed the old final-advice heading is gone and the new appendix heading is
+  present.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-14 — Definition of done appendix audit
+
+**Context.** Rechecked the implementation guide Definition of Done against the
+completed Phase 5 scope, README, demo script, Makefile verification targets,
+testing appendix and current documentation set.
+
+**Changes.**
+- Confirmed the old Definition of Done was directionally correct but too vague
+  for the now-finished repository.
+- Updated the ignored implementation guide section to `Appendix T: Definition
+  Of Done`.
+- Split acceptance into reviewer walkthrough, required verification gates,
+  opt-in Celery/live-provider gates, documentation acceptance and explicit
+  scope boundaries.
+- Clarified that default done status covers the deterministic offline portfolio
+  demo path; Redis/Celery/Postgres and provider-backed behavior should only be
+  claimed when their opt-in gates have been run.
+
+**Tests / verification.**
+- Confirmed referenced Makefile gates exist.
+- Confirmed referenced documentation files exist.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-14 — README requirements appendix audit
+
+**Context.** Rechecked the implementation guide README requirements section
+against the current README, Phase 5 portfolio-demo scope, demo script,
+limitations, architecture docs and resume bullets.
+
+**Changes.**
+- Confirmed the README already covers the required reviewer-facing material:
+  project summary, business problem, demo workflow, tech stack, Docker/local
+  run commands, sample questions, evaluation, architecture, limitations, future
+  improvements and resume bullets.
+- Updated the ignored implementation guide section to `Appendix S: README
+  Requirements`.
+- Reframed the old checklist as a coverage table with maintenance rules and
+  explicit wording guidance.
+- Clarified that the README's concise text architecture flow is the accepted
+  architecture artifact for this code-first portfolio repository; a separate
+  static diagram is not required.
+
+**Tests / verification.**
+- Confirmed required README headings are present.
+- Confirmed overclaim terms do not appear in `README.md`.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-13 — Development milestones appendix audit
+
+**Context.** Rechecked the implementation guide development milestones section
+against the completed Phase 5 scope, appendices, README, demo script,
+limitations, architecture docs and current repository artifacts.
+
+**Changes.**
+- Confirmed the old milestone list was historical scaffolding, not an active
+  implementation plan.
+- Updated the ignored implementation guide section to `Appendix R: Development
+  Milestone Map`.
+- Mapped each milestone to its implemented artifacts and current documentation
+  references.
+- Removed the misleading implication that screenshots and a short video are
+  required committed repository artifacts; they remain optional external
+  portfolio materials.
+
+**Tests / verification.**
+- Confirmed referenced implementation/doc files in the milestone map exist.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-13 — Observability appendix audit
+
+**Context.** Rechecked the implementation guide observability section against
+the actual logging setup, Q&A metrics, run logger, document status endpoint,
+readiness diagnostics and limitations docs.
+
+**Changes.**
+- Confirmed the old observability section was a stale phase-era checklist.
+- Updated the ignored implementation guide section to `Appendix Q:
+  Observability` and aligned it with the current lightweight observability
+  model: stdout/stderr app logs, structured Q&A run events, response metrics,
+  document status, readiness checks and known telemetry gaps.
+- Added structured Q&A run status to `qa_metrics` log events.
+- Added structured `qa_failed` run events so failed Q&A requests emit a
+  machine-readable run ID, status and error instead of relying only on a plain
+  exception log.
+- Added regression tests for structured Q&A metrics and failure logs.
+- Updated architecture and limitations docs to clarify that optional exporters,
+  request-wide tracing and metrics endpoints are not integrated.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_qa_metrics.py backend/tests/test_api_qa.py backend/tests/test_rag_pipeline.py`:
+  **15 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: **102 passed, 2 skipped**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline synthetic metrics intact.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-13 — Testing plan appendix audit
+
+**Context.** Rechecked the implementation guide testing section against the
+actual pytest suite, hermetic test configuration, Docker Makefile targets,
+offline evaluation, Celery integration gate and live provider smoke profile.
+
+**Changes.**
+- Confirmed the old phase-era testing checklist was stale.
+- Updated the ignored implementation guide section to `Appendix P: Testing Plan`
+  and aligned it with the current layered verification matrix: hermetic pytest,
+  offline evaluation, Ruff/static checks, Alembic SQL, Docker Compose config,
+  opt-in Celery/Postgres integration, opt-in live provider smoke and optional
+  local semantic embedding tests.
+- Documented the explicit verification boundary: do not claim Redis/Celery/
+  Postgres or provider-backed behavior was verified unless the corresponding
+  opt-in target was run.
+- Documented known remaining gaps: no coverage threshold, no mypy gate and no
+  browser/E2E Streamlit test.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: **100 passed, 2 skipped**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed after
+  formatting four files to restore the static formatting gate.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline synthetic metrics intact.
+- `UV_CACHE_DIR=.uv-cache uv run alembic upgrade head --sql`: emitted the
+  expected PostgreSQL/pgvector schema SQL.
+- `docker compose --profile test --profile live-test config --quiet`: passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-13 — File upload safety appendix audit
+
+**Context.** Rechecked the implementation guide upload-safety section against
+the FastAPI upload route, document service validation, parser timeout/temp-file
+handling, local upload store and upload-safety tests.
+
+**Changes.**
+- Confirmed upload safety is implemented as basic portfolio-demo hardening, not
+  a future task.
+- Updated the ignored implementation guide section to `Appendix O: File Upload
+  Safety` and aligned it with MIME/extension checks, size limits, safe filename
+  handling, parser timeout, temp-file cleanup, corrupt-file behavior and known
+  limits.
+- Normalized upload MIME types before validation so allowed media types with
+  parameters, such as `text/plain; charset=utf-8`, are accepted.
+- Switched oversized upload failures to the current
+  `HTTP_413_CONTENT_TOO_LARGE` status constant.
+- Expanded upload-safety tests for MIME parameters, oversized files,
+  unsupported extensions, empty files, path traversal filenames and corrupt
+  supported files.
+- Updated limitations docs to clarify that MIME is an early filter, not a trust
+  boundary, and antivirus/magic-byte validation are out of scope.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_upload_safety.py backend/tests/test_parser.py backend/tests/test_phase4_upload_store.py backend/tests/test_phase2_status.py`:
+  **22 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/api/routes_documents.py backend/tests/test_upload_safety.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline metrics intact.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-13 — pgvector readiness deep audit
+
+**Context.** Rechecked `Appendix N: pgvector` because pgvector is a core project
+feature and the first audit focused mostly on dimension safety.
+
+**Changes.**
+- Tightened `check_pgvector_ready()` so readiness validates the existing vector
+  index access method and operator class, not just the presence of an index with
+  the expected name.
+- Updated `ensure_pgvector_schema()` to pass the expected index type and
+  operator class into readiness validation.
+- Added unit coverage for pgvector readiness with a matching HNSW/cosine index
+  and for a stale operator-class mismatch.
+- Updated Appendix N, architecture and limitations docs to explain that
+  `CREATE INDEX IF NOT EXISTS` will not replace a stale vector index, so
+  index/operator changes require a migration that rebuilds
+  `ix_document_chunks_embedding`.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_vector_store.py backend/tests/test_ready.py backend/tests/test_phase4_processing_backend.py`:
+  **17 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/storage/database.py backend/app/rag/vector_store.py backend/tests/test_vector_store.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run alembic upgrade head --sql`: emitted the
+  `document_chunks.embedding vector(1536)` schema and HNSW cosine index SQL.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline metrics intact.
+
+---
+
+## 2026-06-12 — pgvector appendix audit
+
+**Context.** Rechecked the implementation guide pgvector section against the
+Postgres vector store, embedding adapters, runtime schema creation, Alembic
+migrations, Docker defaults, readiness checks and vector-store tests.
+
+**Changes.**
+- Confirmed pgvector is implemented as the durable Docker retrieval path, not a
+  future step.
+- Updated the ignored implementation guide section to `Appendix N: pgvector`
+  and aligned it with `VECTOR_STORE_BACKEND=memory|postgres`, Docker hash
+  embeddings, runtime schema self-create, Alembic migrations, readiness checks
+  and dimension-change requirements.
+- Added query-time dimension validation to `PgVectorStore.search()` so
+  misconfigured query embeddings fail with the same clear error as indexing
+  mismatches instead of surfacing as a database error.
+- Made `POSTGRES_VECTOR_DISTANCE_METRIC` cosine-only in settings; the SQL path
+  uses pgvector cosine distance and does not implement L2/IP variants.
+- Expanded vector-store tests for pgvector index/search dimension mismatch.
+- Updated architecture and limitations docs to clarify cosine-only pgvector
+  support and the need to rebuild embeddings after dimension changes.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_vector_store.py backend/tests/test_ready.py backend/tests/test_phase4_processing_backend.py`:
+  **15 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/core/settings.py backend/app/rag/vector_store.py backend/tests/test_vector_store.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run alembic upgrade head --sql`: emitted the
+  `document_chunks.embedding vector(1536)` schema and HNSW cosine index SQL.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline metrics intact.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Status model appendix audit
+
+**Context.** Rechecked the implementation guide status-model section against
+the Pydantic status literals, repository default steps/branches, API status
+examples, thread/Celery transitions and tests.
+
+**Changes.**
+- Confirmed the status model is implemented, not a future phase.
+- Updated the ignored implementation guide section to `Appendix M: Status Model`
+  and aligned it with the actual document statuses, sequential processing steps,
+  branch statuses, failure behavior and repository defaults.
+- Removed stale `classifying` branch documentation; document type classification
+  is part of extraction, not a separate branch.
+- Updated the API appendix upload-status list to include intermediate statuses
+  that duplicate in-flight uploads can return.
+- Added a status vocabulary regression test to keep schema literals and
+  repository defaults aligned.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_phase2_status.py backend/tests/test_phase3_hardening.py backend/tests/test_phase4_processing_backend.py backend/tests/test_api_qa.py`:
+  **22 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/tests/test_phase2_status.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline metrics intact.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Async processing appendix audit
+
+**Context.** Rechecked the implementation guide async-processing section against
+the thread upload path, Celery canvas, status model, duplicate-upload behavior,
+upload blob lifecycle, Docker integration test and async-focused tests.
+
+**Changes.**
+- Confirmed async upload processing is implemented, not a future phase.
+- Updated the ignored implementation guide section to `Appendix L: Async
+  Processing` and aligned it with the current async upload API, `thread|celery`
+  backend selection, Celery/Postgres requirement, status model and Docker
+  verification commands.
+- Fixed a thread-path bookkeeping race where an extremely fast background task
+  could complete before its future was registered, leaving a completed future in
+  the in-memory task map.
+- Added a regression test that uses an immediate executor and verifies completed
+  thread tasks are removed from tracking.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_phase2_status.py backend/tests/test_phase4_processing_backend.py backend/tests/test_phase4_upload_store.py backend/tests/test_phase3_hardening.py`:
+  **22 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/documents/service.py backend/tests/test_phase2_status.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline metrics intact.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Cost tracking appendix audit
+
+**Context.** Rechecked the implementation guide cost-tracking section against
+Q&A metrics, provider usage capture, configured price settings, run logging,
+deployment notes and tests.
+
+**Changes.**
+- Confirmed cost tracking is implemented as lightweight per-Q&A run metrics and
+  structured logs, not as billing-grade accounting or a durable `ModelCall`
+  ledger.
+- Updated the ignored implementation guide section to `Appendix K: Cost
+  Tracking` and aligned it with the actual metrics fields, price settings and
+  known limitations.
+- Added `token_usage_source` to Q&A metrics so consumers can distinguish
+  provider-reported token counts from local word-count estimates.
+- Fixed offline heuristic cost reporting: offline/local Q&A now reports
+  `estimated_cost_usd=0.0` even when provider token prices are configured.
+- Provider-backed calls without usage metadata are now explicitly marked as
+  estimated.
+- Updated deployment notes to clarify provider usage versus estimated usage and
+  offline API cost behavior.
+- Expanded Q&A metric tests for provider usage, provider-without-usage fallback
+  and offline cost behavior with configured prices.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_qa_metrics.py backend/tests/test_api_qa.py backend/tests/test_rag_pipeline.py`:
+  **13 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/observability/costs.py backend/app/rag/service.py backend/app/rag/schemas.py backend/tests/test_qa_metrics.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with the existing offline metrics intact.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Privacy appendix audit
+
+**Context.** Rechecked the implementation guide privacy section against the
+redaction helper, document processing flow, Postgres persistence, logging
+behavior, privacy docs and tests.
+
+**Changes.**
+- Confirmed privacy is implemented as a narrow production-style demo policy,
+  not a compliance feature or new product phase.
+- Updated the ignored implementation guide section to `Appendix J: Privacy` and
+  aligned it with the current `phase3-purpose-v1` text variants, persistence
+  model, logging boundaries and limitations.
+- Corrected a stale API example that still used `basic-v1` as the privacy policy
+  version.
+- Tightened account/tax redaction to avoid over-redacting normal prose such as
+  "Account manager is Jane Smith" and "VAT rate is 23 percent".
+- Split IBAN handling so full IBAN-like values are redacted as account
+  identifiers instead of being partially redacted and then reprocessed as a card
+  number.
+- Expanded privacy tests for account, IBAN and tax identifiers, over-redaction
+  edge cases, policy version and display variant behavior.
+- Updated `docs/privacy.md` to describe the refined identifier patterns.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_privacy_confidence.py backend/tests/test_phase2_status.py backend/tests/test_phase4_processing_backend.py`:
+  **15 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/documents/privacy.py backend/tests/test_privacy_confidence.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `document_hit_at_5=1.0`, `citation_coverage=1.0`,
+  `unsupported_answer_rejection_rate=0.8`, `support_check_pass_rate=1.0`,
+  `extraction_field_accuracy=1.0`.
+- Redaction spot check: normal account-manager and VAT-rate prose is preserved;
+  account number, IBAN and VAT ID examples redact.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Evaluation appendix audit
+
+**Context.** Rechecked the implementation guide evaluation section against the
+offline evaluator, async evaluation API, committed JSONL datasets, candidate
+generator, README and evaluation docs.
+
+**Changes.**
+- Confirmed evaluation is implemented portfolio smoke-test infrastructure, not a
+  new product phase.
+- Updated the ignored implementation guide section to `Appendix I: Evaluation`
+  and aligned it with the current dataset shape, `expected_filenames` contract,
+  Docker/local run commands, async API and LLM-assisted candidate generator.
+- Added evaluator coverage fields for dataset row counts, scored row counts and
+  missing expected filenames so dataset drift is visible in the result payload.
+- Updated `docs/evaluation.md` and `README.md` snapshots to include the new
+  coverage fields.
+- Added focused evaluation tests for dataset coverage reporting and extraction
+  metric matching behavior.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_evaluation.py backend/tests/test_phase3_hardening.py`:
+  **13 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/evaluation/service.py backend/tests/test_evaluation.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `documents_loaded=13`, `questions_evaluated=7`,
+  `negative_questions_evaluated=5`, `expected_extractions_evaluated=8`,
+  `retrieval_questions_scored=7`, `extraction_rows_scored=8`,
+  `missing_expected_filenames=[]`, `document_hit_at_5=1.0`,
+  `citation_coverage=1.0`, `unsupported_answer_rejection_rate=0.8`,
+  `support_check_pass_rate=1.0`, `extraction_field_accuracy=1.0`.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Deterministic citations appendix audit
+
+**Context.** Rechecked the implementation guide citation section against the
+generator prompt, backend citation mapper, support gate, RAG service and
+citation-focused tests.
+
+**Changes.**
+- Confirmed deterministic citation mapping is implemented Q&A trust-boundary
+  behavior, not a new phase.
+- Updated the ignored implementation guide section to `Appendix H:
+  Deterministic Citations` and aligned it with the actual placeholder contract,
+  backend metadata mapping, snippet behavior and insufficient-information failure
+  rules.
+- Made citation parsing tolerate minor LLM formatting variance such as
+  `<cite index = '0'>`, while still accepting only numeric indexes.
+- Expanded citation tests for tolerant parsing, source deduplication, snippet
+  normalization/truncation, malformed placeholders and mixed valid/out-of-range
+  citations.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_citations.py backend/tests/test_llm_integration.py backend/tests/test_rag_pipeline.py backend/tests/test_phase3_hardening.py`:
+  **27 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/rag/citations.py backend/tests/test_citations.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `citation_coverage=1.0` and `support_check_pass_rate=1.0`.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — RAG pipeline appendix audit
+
+**Context.** Rechecked the implementation guide RAG section against retrieval,
+vector stores, reranking, generation, backend citation mapping, support checking,
+metrics, streaming and evaluation.
+
+**Changes.**
+- Confirmed RAG is the implemented Q&A trust path, not a new phase.
+- Updated the ignored implementation guide section to `Appendix G: RAG Pipeline`
+  and aligned it with the actual retrieval -> rerank -> generate -> map citations
+  -> support-check -> metrics flow.
+- Documented current trade-offs: hash embeddings are lexical, the offline
+  answerer is keyword-overlap based, support checking is lexical rather than
+  entailment, and semantic caching is not implemented.
+- Added focused RAG tests for no-citation fallback, low-relevance fallback,
+  reranker promotion and document-id filter propagation.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_rag_pipeline.py backend/tests/test_api_qa.py backend/tests/test_citations.py backend/tests/test_llm_integration.py backend/tests/test_qa_metrics.py backend/tests/test_vector_store.py backend/tests/test_phase3_hardening.py`:
+  **34 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/tests/test_rag_pipeline.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `document_hit_at_5=1.0`, `citation_coverage=1.0`,
+  `unsupported_answer_rejection_rate=0.8`, `support_check_pass_rate=1.0`.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Summarisation appendix audit
+
+**Context.** Rechecked the implementation guide summarisation section against
+the summariser implementation, prompt, runtime branch integration and tests.
+
+**Changes.**
+- Confirmed summarisation is implemented ingestion behavior, not a new phase.
+- Updated the ignored implementation guide section to `Appendix F:
+  Summarisation` and aligned it with LLM-backed summarisation, deterministic
+  fallback behavior, empty-text handling and thread/Celery integration.
+- Documented that summaries are a demo affordance, not the citation trust
+  boundary; cited Q&A remains the source-grounded path.
+- Added summariser tests for empty text, heuristic bullet format, LLM prompt
+  usage, blank-provider fallback and provider-failure fallback.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_summarizer.py backend/tests/test_llm_integration.py backend/tests/test_phase4_document_state.py backend/tests/test_phase4_processing_backend.py`:
+  **17 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/tests/test_summarizer.py`:
+  passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Extraction appendix audit
+
+**Context.** Rechecked the implementation guide extraction section against the
+actual extractor, Pydantic schema, confidence gates, prompt and runtime branch
+integration.
+
+**Changes.**
+- Confirmed extraction is implemented ingestion behavior, not a new phase.
+- Updated the ignored implementation guide section to `Appendix E: Extraction`
+  and aligned it with LLM JSON validation, deterministic heuristic fallback,
+  confidence/review gates and thread/Celery integration.
+- Expanded extraction tests for contract fields, currency symbol normalization,
+  currency suffixes and implausible-value confidence gates.
+- Fixed amount extraction for currency-symbol prefixes such as `£1,200.50`;
+  the previous regex required a word boundary before the symbol. A follow-up
+  critical pass also added support for suffix currency forms such as
+  `1,200.50 GBP`.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_extractor.py backend/tests/test_llm_integration.py backend/tests/test_privacy_confidence.py backend/tests/test_phase4_document_state.py backend/tests/test_phase4_processing_backend.py`:
+  **21 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/app/documents/extractor.py backend/tests/test_extractor.py backend/tests/test_privacy_confidence.py`:
+  passed.
+- `UV_CACHE_DIR=.uv-cache uv run python scripts/run_evaluation.py`: completed
+  with `extraction_field_accuracy=1.0`.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Chunking appendix audit
+
+**Context.** Rechecked the implementation guide chunking section against the
+actual chunker implementation and ingestion tests.
+
+**Changes.**
+- Confirmed chunking is implemented ingestion behavior, not a new phase.
+- Updated the ignored implementation guide section to `Appendix D: Chunking`
+  and aligned it with configured chunk size/overlap, section-heading handling,
+  metadata propagation and current layout-awareness trade-offs.
+- Expanded chunker tests to cover configured overlap and section-title
+  preservation.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_chunker.py backend/tests/test_privacy_confidence.py backend/tests/test_phase2_status.py`:
+  **10 passed**.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check backend/tests/test_chunker.py`:
+  passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Document parsing appendix audit
+
+**Context.** Rechecked the implementation guide document-parsing section
+against the actual parser implementation and parser/upload-safety tests.
+
+**Changes.**
+- Confirmed document parsing is implemented Phase 1 behavior, not a new phase.
+- Updated the ignored implementation guide section to `Appendix C: Document
+  Parsing` and aligned it with the implemented TXT, DOCX and digital-native PDF
+  parser behavior, timeout handling and test coverage.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_parser.py backend/tests/test_upload_safety.py`:
+  **7 passed**.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — API contracts appendix audit
+
+**Context.** Rechecked the implementation guide API contracts against the
+actual FastAPI routes, Pydantic response schemas and API-focused tests.
+
+**Changes.**
+- Confirmed API contracts are implemented reference material, not Phase 6.
+- Updated the ignored implementation guide API appendix to match the current
+  public API: async upload, readiness checks, document status branches, Q&A
+  metrics, streaming NDJSON events and evaluation endpoints.
+
+**Tests / verification.**
+- `UV_CACHE_DIR=.uv-cache uv run pytest backend/tests/test_api_qa.py backend/tests/test_ready.py backend/tests/test_phase2_status.py backend/tests/test_phase3_hardening.py`:
+  **20 passed**.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-12 — Docker appendix audit
+
+**Context.** Rechecked the Docker-first runtime/testing appendix against the
+actual Compose services, Dockerfiles, Makefile targets and test profiles.
+
+**Changes.**
+- Confirmed the appendix is runtime guidance, not a sixth product phase.
+- Added ignored local upload blobs and generated evaluation candidates to
+  `.dockerignore`, so Docker builds cannot copy local runtime/test artifacts
+  into images through `COPY data /app/data`.
+- Updated the ignored implementation guide appendix command list to include the
+  existing Celery integration and Compose config Makefile targets.
+
+**Tests / verification.**
+- `docker compose --profile test --profile live-test config --quiet`: passed.
+- `make test`: **58 passed, 2 skipped** in Docker.
+- `make eval`: completed in Docker with `document_hit_at_5=1.0`,
+  `citation_coverage=1.0`, `unsupported_answer_rejection_rate=0.8`,
+  `support_check_pass_rate=1.0`, `extraction_field_accuracy=1.0`.
+- `make alembic-sql`: emitted the pgvector + durable document-state schema SQL.
+- `COMPOSE_PROJECT_NAME=intellidocs_appendix_check make celery-integration-test`:
+  **1 passed** in Docker Compose against Redis/Celery/Postgres.
+- `git diff --check`: passed.
+
+---
+
 ## 2026-06-08 — Phase 5 marked complete
 
 **Context.** After Phase 5 demo polish, review fixes, Staff-review hardening and

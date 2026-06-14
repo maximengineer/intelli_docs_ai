@@ -79,9 +79,7 @@ def render_processing_status(payload: dict) -> None:
     if steps:
         st.markdown("**Sequential steps**")
         st.markdown(
-            "\n".join(
-                step_line(step["name"], step["status"], step.get("error")) for step in steps
-            )
+            "\n".join(step_line(step["name"], step["status"], step.get("error")) for step in steps)
         )
     if branches:
         st.markdown("**Parallel AI branches**")

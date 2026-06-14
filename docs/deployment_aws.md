@@ -29,4 +29,7 @@ is enterprise-ready.
 - Set upload size limits at the load balancer and application layers.
 - Store secrets in AWS Secrets Manager or SSM Parameter Store.
 - Treat cost estimates as application logs, not billing-grade accounting.
-
+  `token_usage_source=provider` means provider usage metadata was available;
+  `token_usage_source=estimate` means the app used a local word-count estimate.
+  Offline/local heuristic runs report API cost as `$0.00`; local compute cost is
+  not estimated.

@@ -31,11 +31,14 @@ The basic policy redacts:
 - email addresses
 - phone-like numbers
 - credit-card-like numbers
-- account-like identifiers
-- tax ID/VAT/TIN-like identifiers
+- IBAN-like identifiers
+- account-number-like identifiers
+- tax ID, VAT ID and TIN-like identifiers
 
 Organisation, vendor, party, and company names are intentionally preserved by
 default so extraction and name-based retrieval still work.
+The account and tax patterns are deliberately conservative enough to preserve
+normal business prose such as account manager names and VAT-rate text.
 
 ## Limits
 
