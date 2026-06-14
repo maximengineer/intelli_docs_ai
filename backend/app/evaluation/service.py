@@ -79,6 +79,10 @@ def _run_evaluation_loop(
     embedding_backend: str,
     llm_enabled: bool,
 ) -> dict[str, Any]:
+    question_rows = load_jsonl(EVAL / "questions.jsonl")
+    negative_question_rows = load_jsonl(EVAL / "negative_questions.jsonl")
+    extraction_rows = load_jsonl(EVAL / "expected_extractions.jsonl")
+
     sample_paths = sorted(SAMPLES.glob("*.txt"))
     if not sample_paths:
         return {
@@ -86,6 +90,12 @@ def _run_evaluation_loop(
             "embedding_backend": embedding_backend,
             "llm_enabled": llm_enabled,
             "documents_loaded": 0,
+            "questions_evaluated": len(question_rows),
+            "negative_questions_evaluated": len(negative_question_rows),
+            "expected_extractions_evaluated": len(extraction_rows),
+            "retrieval_questions_scored": 0,
+            "extraction_rows_scored": 0,
+            "missing_expected_filenames": [],
             "notes": f"No sample documents found under {SAMPLES}.",
         }
 
@@ -102,14 +112,17 @@ def _run_evaluation_loop(
     unsupported_rejected = 0
     support_checked = 0
     support_passed = 0
+    missing_expected_filenames: set[str] = set()
 
-    for row in load_jsonl(EVAL / "questions.jsonl"):
+    for row in question_rows:
         started = time.perf_counter()
-        expected_document_ids = [
-            filename_to_doc_id[filename]
-            for filename in row.get("expected_filenames", [])
-            if filename in filename_to_doc_id
-        ]
+        expected_document_ids = []
+        for filename in row.get("expected_filenames", []):
+            doc_id = filename_to_doc_id.get(filename)
+            if doc_id is None:
+                missing_expected_filenames.add(filename)
+                continue
+            expected_document_ids.append(doc_id)
         retrieved = qa_service.retriever.retrieve(QARequest(question=row["question"])).context
         if expected_document_ids:
             document_hit_scores.append(document_hit_at_k(retrieved, expected_document_ids, 5))
@@ -124,16 +137,17 @@ def _run_evaluation_loop(
             if response.sources:
                 cited_answer_count += 1
 
-    for row in load_jsonl(EVAL / "negative_questions.jsonl"):
+    for row in negative_question_rows:
         unsupported_total += 1
         response = qa_service.answer(QARequest(question=row["question"]))
         if response.status == "insufficient_information":
             unsupported_rejected += 1
 
     extraction_scores: list[float] = []
-    for row in load_jsonl(EVAL / "expected_extractions.jsonl"):
+    for row in extraction_rows:
         doc_id = filename_to_doc_id.get(row["filename"])
         if doc_id is None:
+            missing_expected_filenames.add(row["filename"])
             continue
         document = document_service.get(doc_id)
         if document:
@@ -146,6 +160,12 @@ def _run_evaluation_loop(
         "embedding_backend": embedding_backend,
         "llm_enabled": llm_enabled,
         "documents_loaded": len(filename_to_doc_id),
+        "questions_evaluated": len(question_rows),
+        "negative_questions_evaluated": len(negative_question_rows),
+        "expected_extractions_evaluated": len(extraction_rows),
+        "retrieval_questions_scored": len(document_hit_scores),
+        "extraction_rows_scored": len(extraction_scores),
+        "missing_expected_filenames": sorted(missing_expected_filenames),
         "document_hit_at_5": average(document_hit_scores),
         "citation_coverage": citation_coverage(answer_count, cited_answer_count),
         "unsupported_answer_rejection_rate": (
