@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 from app.core.settings import get_settings
@@ -8,6 +10,7 @@ from app.core.settings import get_settings
 class TokenUsage(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
+    source: Literal["provider", "estimate"] = "provider"
 
 
 def estimate_tokens(text: str) -> int:

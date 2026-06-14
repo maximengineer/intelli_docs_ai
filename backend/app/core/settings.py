@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     require_database_ready: bool = False
     vector_store_backend: Literal["memory", "postgres"] = "memory"
     postgres_vector_dimension: int = 1536
-    postgres_vector_distance_metric: str = "cosine"
+    postgres_vector_distance_metric: Literal["cosine"] = "cosine"
     postgres_vector_operator_class: str = "vector_cosine_ops"
     postgres_vector_index_type: str = "hnsw"
     database_pool_min_size: int = Field(default=1, ge=0)

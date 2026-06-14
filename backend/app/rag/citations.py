@@ -3,7 +3,7 @@ import re
 from app.rag.generator import FALLBACK_ANSWER
 from app.rag.schemas import RetrievedChunk, SourceCitation
 
-CITE_RE = re.compile(r"<cite\s+index=\"(?P<index>\d+)\"\s*>")
+CITE_RE = re.compile(r"<cite\s+index\s*=\s*[\"'](?P<index>\d+)[\"']\s*>")
 
 
 def map_citations(

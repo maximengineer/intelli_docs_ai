@@ -47,6 +47,7 @@ class QAMetrics(BaseModel):
     # otherwise (model_name == "offline-heuristic" signals the approximate case).
     input_tokens: int
     output_tokens: int
+    token_usage_source: Literal["provider", "estimate"]
     estimated_cost_usd: float
     price_table_as_of: str
     reranker_enabled: bool

@@ -39,7 +39,12 @@ def check_database_ready(database_url: str | None) -> bool:
         return False
 
 
-def check_pgvector_ready(database_url: str | None, expected_dimension: int | None = None) -> bool:
+def check_pgvector_ready(
+    database_url: str | None,
+    expected_dimension: int | None = None,
+    expected_operator_class: str | None = None,
+    expected_index_type: str | None = None,
+) -> bool:
     if not database_url:
         return False
     try:
@@ -79,9 +84,36 @@ def check_pgvector_ready(database_url: str | None, expected_dimension: int | Non
                     """
                 )
                 row = cursor.fetchone()
+                cursor.execute(
+                    """
+                    select access_method.amname, operator_class.opcname
+                    from pg_index index_info
+                    join pg_class index_class
+                      on index_class.oid = index_info.indexrelid
+                    join pg_namespace namespace
+                      on namespace.oid = index_class.relnamespace
+                    join pg_am access_method
+                      on access_method.oid = index_class.relam
+                    join pg_opclass operator_class
+                      on operator_class.oid = index_info.indclass[0]
+                    where namespace.nspname = 'public'
+                      and index_class.relname = 'ix_document_chunks_embedding'
+                    """
+                )
+                index_row = cursor.fetchone()
         column_type = row[0] if row else None
         expected_type = f"vector({expected_dimension})" if expected_dimension else None
         column_ready = column_type == expected_type if expected_type else bool(column_type)
+        index_type = index_row[0] if index_row else None
+        operator_class = index_row[1] if index_row else None
+        index_type_ready = (
+            index_type == expected_index_type if expected_index_type else bool(index_type)
+        )
+        operator_class_ready = (
+            operator_class == expected_operator_class
+            if expected_operator_class
+            else bool(operator_class)
+        )
         return bool(
             extension_ready
             and documents_ready
@@ -89,6 +121,8 @@ def check_pgvector_ready(database_url: str | None, expected_dimension: int | Non
             and embedding_index_ready
             and chunk_fk_ready
             and column_ready
+            and index_type_ready
+            and operator_class_ready
         )
     except Exception:
         logger.warning("pgvector_readiness_check_failed", exc_info=True)
@@ -146,7 +180,12 @@ def ensure_pgvector_schema(
                 except Exception:
                     logger.warning("schema_advisory_unlock_failed", exc_info=True)
         connection.commit()
-    return check_pgvector_ready(database_url, expected_dimension=dimension)
+    return check_pgvector_ready(
+        database_url,
+        expected_dimension=dimension,
+        expected_operator_class=operator_class,
+        expected_index_type=index_type,
+    )
 
 
 def _get_database_pool(database_url: str, *, connect_timeout: int) -> object:

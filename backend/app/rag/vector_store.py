@@ -131,12 +131,7 @@ class PgVectorStore:
         vectors = self.embedding_model.embed_batch([chunk.text for chunk in chunks])
         rows = []
         for chunk, vector in zip(chunks, vectors, strict=True):
-            if len(vector) != self._dimension:
-                raise ValueError(
-                    f"Embedding dimension {len(vector)} does not match the configured "
-                    f"POSTGRES_VECTOR_DIMENSION={self._dimension}. Set it to match the "
-                    f"embedding model ('{self.embedding_model.name}') and re-run the migration."
-                )
+            self._validate_dimension(vector)
             rows.append((chunk, _vector_literal(vector)))
 
         with database_connection(self.database_url) as connection:
@@ -193,7 +188,9 @@ class PgVectorStore:
         document_ids: list[str] | None = None,
     ) -> list[RetrievedChunk]:
         self._ensure_schema()
-        query_vector = _vector_literal(self.embedding_model.embed(query))
+        query_embedding = self.embedding_model.embed(query)
+        self._validate_dimension(query_embedding)
+        query_vector = _vector_literal(query_embedding)
         where = "where embedding is not null"
         params: list[object] = [query_vector]
         if document_ids:
@@ -258,6 +255,14 @@ class PgVectorStore:
                 "pgvector_store_ready backend=postgres model=%s dim=%s",
                 self.embedding_model.name,
                 self._dimension,
+            )
+
+    def _validate_dimension(self, vector: list[float]) -> None:
+        if len(vector) != self._dimension:
+            raise ValueError(
+                f"Embedding dimension {len(vector)} does not match the configured "
+                f"POSTGRES_VECTOR_DIMENSION={self._dimension}. Set it to match the "
+                f"embedding model ('{self.embedding_model.name}') and re-run the migration."
             )
 
 

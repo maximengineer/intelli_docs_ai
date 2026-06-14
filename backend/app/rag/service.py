@@ -52,6 +52,7 @@ class QAService:
                     candidates_retrieved=len(retrieval.candidates),
                     answer=FALLBACK_ANSWER,
                     citation_count=0,
+                    status="insufficient_information",
                     support_check=SupportCheckResult(
                         supported=False,
                         reason="relevance_below_threshold",
@@ -70,6 +71,7 @@ class QAService:
                     candidates_retrieved=len(retrieval.candidates),
                     answer=FALLBACK_ANSWER,
                     citation_count=0,
+                    status="insufficient_information",
                     support_check=SupportCheckResult(
                         supported=False,
                         reason="citation_mapping_failed",
@@ -86,6 +88,7 @@ class QAService:
                     candidates_retrieved=len(retrieval.candidates),
                     answer=FALLBACK_ANSWER,
                     citation_count=0,
+                    status="insufficient_information",
                     support_check=support_check,
                 )
                 return self._insufficient(run_id, metrics)
@@ -97,6 +100,7 @@ class QAService:
                 candidates_retrieved=len(retrieval.candidates),
                 answer=answer,
                 citation_count=len(sources),
+                status="success",
                 support_check=support_check,
             )
             return QAResponse(
@@ -107,6 +111,7 @@ class QAService:
                 metrics=metrics,
             )
         except Exception as exc:
+            log_run_event(run_id=run_id, event="qa_failed", status="failed", error=str(exc))
             logger.exception("qa_failed run_id=%s", run_id)
             return QAResponse(run_id=run_id, answer="", status="failed", sources=[], error=str(exc))
         finally:
@@ -123,6 +128,7 @@ class QAService:
         candidates_retrieved: int,
         answer: str,
         citation_count: int,
+        status: str,
         support_check: SupportCheckResult | None = None,
     ) -> QAMetrics:
         settings = get_settings()
@@ -134,8 +140,10 @@ class QAService:
             usage = TokenUsage(
                 input_tokens=estimate_tokens(input_text),
                 output_tokens=estimate_tokens(answer),
+                source="estimate",
             )
         model_name = settings.llm_model if self.llm_client is not None else "offline-heuristic"
+        estimated_cost_usd = estimate_cost_usd(usage) if self.llm_client is not None else 0.0
         metrics = QAMetrics(
             latency_ms=int((time.perf_counter() - started) * 1000),
             candidates_retrieved=candidates_retrieved,
@@ -144,13 +152,14 @@ class QAService:
             model_name=model_name,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
-            estimated_cost_usd=estimate_cost_usd(usage),
+            token_usage_source=usage.source,
+            estimated_cost_usd=estimated_cost_usd,
             price_table_as_of=settings.price_table_as_of,
             reranker_enabled=settings.reranker_enabled,
             support_check_passed=support_check.supported if support_check else None,
             support_check_reason=support_check.reason if support_check else None,
         )
-        log_run_event(run_id=run_id, event="qa_metrics", **metrics.model_dump())
+        log_run_event(run_id=run_id, event="qa_metrics", status=status, **metrics.model_dump())
         return metrics
 
     @staticmethod
