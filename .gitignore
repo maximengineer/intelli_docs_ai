@@ -1,6 +1,7 @@
 .agents/
 .claude/
 .codex/
+.playwright-mcp/
 .pytest_cache/
 .ruff_cache/
 .uv-cache/

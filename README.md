@@ -1,23 +1,47 @@
 # IntelliDocs AI
 
-IntelliDocs AI is a production-style portfolio implementation for document intelligence. It lets a user upload documents, extract key facts, generate concise summaries, ask source-grounded questions, and run a small offline evaluation without relying on fake metrics.
+IntelliDocs AI is a production-style document intelligence system. Upload business documents, extract structured facts, ask questions, and get answers with backend-verified citations — or a clear refusal when the documents don't contain the answer.
 
-The AI sits behind small adapter interfaces (`LLMClient`, `EmbeddingModel`):
+## What Makes This Different
 
-- **Generation / summarisation / extraction** → **OpenRouter** (one `OPENROUTER_API_KEY`, OpenAI-compatible, pick any chat model). Falls back to a deterministic extractive answerer with no key.
-- **Embeddings / retrieval** → zero-dependency hash embeddings by default, with opt-in local `sentence-transformers` for real semantic search or OpenRouter embeddings when configured.
+Calling an LLM API is easy. The hard part is everything around it:
 
-Because of the fallbacks, the tests, CI and a key-less clone always run.
+**Citations you can trust.** Most RAG demos let the LLM say "Source: page 3" — the LLM invented that. Here, the LLM only outputs `<cite index="0">` placeholders. The backend validates each index against the actual retrieved context array and maps it to real metadata: document ID, filename, page number, section, chunk ID, and a verbatim snippet. An invalid index triggers a fallback, not a hallucinated citation.
+
+**Knowing when to say "I don't know."** The system detects when retrieved context doesn't support the question — through citation-integrity and lexical-grounding checks — and returns an explicit `insufficient_information` response with empty sources. Retrieved context is never presented as evidence for an unsupported answer.
+
+**Measured quality, not vibes.** An adversarial evaluation pipeline (keyword-overlapping distractor documents, negative questions) measures `document_hit_at_5`, `citation_coverage`, `unsupported_answer_rejection_rate`, and `extraction_field_accuracy`. The 0.8 rejection rate is a genuine limitation of the lexical fallback, reported honestly — no fake confidence scores or invented benchmarks.
+
+**Durable async document processing.** Documents go through parse, privacy redaction, chunk, then fan out to parallel branches (embedding, extraction, summarisation), and aggregate into durable Postgres state. The API process reads state written by a separate Celery worker. Branch-level status tracking, idempotent retries, content-hash deduplication, and task-safe storage references (no raw bytes through Redis).
+
+**Production-aware engineering.** Upload safety (MIME/size/extension validation, parser timeouts), pgvector with dimension guards and advisory-lock schema init, bounded connection pooling, Celery task time limits, privacy-aware text variants (`raw`/`ai`/`display`), Alembic migrations that tolerate self-created schemas. None of this is glamorous, but it separates a toy from something production-adjacent.
+
+This is a portfolio project. It says "production-style" and "portfolio implementation," not "enterprise-ready." It documents its limitations rather than hiding them.
 
 ## Business Problem
 
-Business teams often need to review invoices, contracts, policies and reports manually. Summaries and Q&A are useful only when the system can show where an answer came from and refuse unsupported questions.
+Business teams review invoices, contracts, policies and reports manually. Summaries and Q&A are useful only when the system can show where an answer came from and refuse unsupported questions.
+
+## How It Works
+
+The AI sits behind small adapter interfaces (`LLMClient`, `EmbeddingModel`):
+
+- **Generation / summarisation / extraction** — OpenRouter (one `OPENROUTER_API_KEY`, OpenAI-compatible, pick any chat model). Falls back to a deterministic extractive answerer with no key.
+- **Embeddings / retrieval** — zero-dependency hash embeddings by default, with opt-in local `sentence-transformers` for real semantic search or OpenRouter embeddings when configured.
+
+Because of the fallbacks, tests, CI and a key-less clone always run.
 
 ## Demo Workflow
 
 ```text
 Upload documents -> extract facts -> ask questions -> get cited answers -> run evaluation
 ```
+
+The Streamlit workspace accepts up to 10 TXT, DOCX or digital-native PDF
+documents per session. It lists processing state for each document, lets the
+user inspect completed results, scopes Q&A to the completed workspace documents
+and provides a Remove action that deletes document state, chunks/vectors and any
+remaining upload blob through the backend API.
 
 For a literal reviewer walkthrough, see `docs/demo_script.md`.
 
