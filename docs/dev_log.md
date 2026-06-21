@@ -6,6 +6,51 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-21 — Multi-document workspace and durable removal
+
+Added a Streamlit workspace for up to 10 documents per session. The uploader now
+accepts multiple TXT/DOCX/PDF files, de-duplicates them by backend document ID,
+polls all accepted documents, lists status in the sidebar and lets users select
+completed documents for summary/extraction inspection. Each terminal document
+has a Remove action.
+
+Added `DELETE /documents/{document_id}`. It removes vectors, remaining upload
+bytes and durable document state (with chunk/status rows cascading in Postgres),
+returns 404 for missing documents and rejects deletion with 409 while processing
+is active. UI Q&A requests now include only completed workspace document IDs;
+`QARequest` rejects more than 10 IDs.
+
+Verification: the full local suite passed with **115 passed, 5 skipped**; Ruff,
+formatting, Compose configuration and diff checks passed. The rebuilt Docker
+stack processed a disposable provider-backed document to `completed`, and the
+deployed DELETE endpoint returned `204`; the temporary upload was removed.
+
+---
+
+## 2026-06-21 — Streamlit question workflow simplification
+
+Removed the sample-question grid and walkthrough-specific copy. Replaced the
+technical Q&A heading with `Ask About Your Documents`, added clear guidance that
+questions must concern uploaded documents, changed the single-line labeled
+input to a larger text area with a placeholder, and made the Ask action a
+full-width primary button. Removed the implementation-facing streaming toggle;
+the UI now always uses the verified streaming endpoint.
+
+---
+
+## 2026-06-21 — Streamlit upload-limit alignment
+
+Bound the Streamlit uploader's displayed/client-side limit to `MAX_UPLOAD_MB`
+and passed the same setting into the frontend container. The UI now shows and
+enforces the same 10 MB default as the FastAPI upload endpoint instead of
+Streamlit's unrelated 200 MB default. Removed duplicate file-type wording: the
+uploader label now names TXT/DOCX/PDF once, Streamlit's combined duplicate
+instruction line is hidden, and a dedicated maximum-size caption remains next
+to the upload control. Removed the unnecessary synthetic-document/demo caption
+from the product UI.
+
+---
+
 ## 2026-06-21 — Provider model and price configuration alignment
 
 Aligned the runtime default, `.env.example` and README on

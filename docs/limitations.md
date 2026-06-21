@@ -59,6 +59,10 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
   hung worker task is marked failed on soft timeout or killed by the worker
   process on hard timeout.
 - TXT, DOCX and digital-native PDF parsing are supported; scanned PDF OCR is out of scope.
+- The Streamlit workspace limit of 10 documents is session-scoped. The backend
+  validates that a Q&A request contains no more than 10 document IDs and
+  provides durable per-document deletion, but there is no authentication,
+  tenant ownership or persistent server-side workspace model yet.
 - Upload safety is basic: file size (capped before fully buffering), extension,
   MIME type with parameter normalization, parser timeout and temp-file cleanup
   checks are implemented. Client-provided MIME is an early filter, not a trust

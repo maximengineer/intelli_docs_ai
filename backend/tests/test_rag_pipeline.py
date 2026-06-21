@@ -1,8 +1,10 @@
+import pytest
 from app.observability.costs import TokenUsage
 from app.rag.reranker import LexicalReranker
 from app.rag.retriever import RetrievalResult, Retriever
 from app.rag.schemas import QARequest, RetrievedChunk
 from app.rag.service import QAService
+from pydantic import ValidationError
 
 
 class FakeRetriever:
@@ -48,6 +50,14 @@ class RecordingDocumentService:
         del query, top_k
         self.last_document_ids = document_ids
         return self.chunks
+
+
+def test_qa_request_limits_document_context_to_ten() -> None:
+    with pytest.raises(ValidationError):
+        QARequest(
+            question="What is in these documents?",
+            document_ids=[f"doc_{index}" for index in range(11)],
+        )
 
 
 def _retrieved_chunk(

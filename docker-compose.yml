@@ -88,6 +88,8 @@ services:
       dockerfile: frontend/Dockerfile
     environment:
       INTELLIDOCS_API_URL: http://backend:8000
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+      MAX_DOCUMENTS: ${MAX_DOCUMENTS:-10}
     ports:
       - "${FRONTEND_PORT:-9999}:8501"
     depends_on:

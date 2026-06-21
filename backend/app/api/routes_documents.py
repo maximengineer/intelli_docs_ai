@@ -1,8 +1,12 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 
 from app.core.settings import get_settings
 from app.documents.schemas import DocumentResponse, DocumentStatusResponse, DocumentUploadResponse
-from app.documents.service import DocumentSubmissionError, get_document_service
+from app.documents.service import (
+    DocumentProcessingActiveError,
+    DocumentSubmissionError,
+    get_document_service,
+)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -74,3 +78,19 @@ def get_document_status(document_id: str) -> DocumentStatusResponse:
     if document_status is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
     return document_status
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_document(document_id: str) -> Response:
+    service = get_document_service()
+    try:
+        deleted = service.delete(document_id)
+    except DocumentProcessingActiveError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

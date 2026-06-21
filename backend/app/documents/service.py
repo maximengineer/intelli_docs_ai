@@ -48,6 +48,10 @@ class DocumentSubmissionError(RuntimeError):
         self.message = message
 
 
+class DocumentProcessingActiveError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class PreparedDocument:
     ai_text: str
@@ -471,10 +475,22 @@ class DocumentService:
     def get(self, document_id: str) -> DocumentResponse | None:
         return self._repository.get_document(document_id)
 
-    def delete(self, document_id: str) -> None:
+    def delete(self, document_id: str) -> bool:
+        current_status = self._repository.get_status(document_id)
+        if current_status is None:
+            return False
+        if current_status.status not in {"completed", "failed"}:
+            raise DocumentProcessingActiveError(
+                f"Document {document_id} cannot be removed while processing is active."
+            )
         self._remove_vectors_safely(document_id)
         self._cleanup_upload_blob(document_id)
         self._repository.delete_document(document_id)
+        with self._lock:
+            self._tasks.pop(document_id, None)
+            self._task_errors.pop(document_id, None)
+            self._task_futures.pop(document_id, None)
+        return True
 
     def list_chunks(self, document_ids: list[str] | None = None) -> list[DocumentChunk]:
         return self._repository.list_chunks(document_ids)

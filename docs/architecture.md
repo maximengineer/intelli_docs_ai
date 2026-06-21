@@ -31,6 +31,16 @@ seed document from storage key
   -> aggregate document completion
 ```
 
+`DELETE /documents/{document_id}` removes a terminal document from durable
+state, cascades its chunks/vectors and deletes any remaining upload blob. Active
+processing returns `409` so deletion cannot race an in-flight thread or Celery
+task.
+
+The Streamlit UI maintains a session-scoped workspace of at most 10 documents.
+Every UI Q&A request includes the completed workspace document IDs, preventing
+retrieval from unrelated database documents. Removing a document calls the
+DELETE endpoint before removing it from session state.
+
 Branch tasks persist their outputs/status in Postgres and return only small
 metadata through Redis. The aggregate task performs the single final document
 write.

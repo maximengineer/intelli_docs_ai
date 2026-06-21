@@ -3,13 +3,14 @@ from concurrent.futures import Future
 from threading import Event
 from typing import get_args
 
+import pytest
 from app.documents.schemas import (
     BranchStatusName,
     DocumentChunk,
     DocumentStatus,
     ProcessingStepName,
 )
-from app.documents.service import DocumentService
+from app.documents.service import DocumentProcessingActiveError, DocumentService
 from app.rag.schemas import RetrievedChunk
 from app.storage.repositories import DEFAULT_BRANCHES, DEFAULT_STEPS
 
@@ -167,6 +168,40 @@ def test_background_failure_is_visible_on_status_and_task_error() -> None:
     assert status.error is not None
     assert "vector index failed" in status.error
     assert _wait_for_task_error(service, upload.document_id) is not None
+
+
+def test_completed_document_can_be_deleted_from_storage_and_retrieval() -> None:
+    service = DocumentService()
+    document = service.upload(
+        filename="delete-me.txt",
+        content=b"Invoice\nVendor: Remove Me Ltd\nTotal Amount: EUR 10.00",
+    )
+
+    assert service.search("Remove Me", top_k=5, document_ids=[document.document_id])
+    assert service.delete(document.document_id) is True
+
+    assert service.get(document.document_id) is None
+    assert service.get_status(document.document_id) is None
+    assert service.search("Remove Me", top_k=5, document_ids=[document.document_id]) == []
+    assert service.delete(document.document_id) is False
+
+
+def test_document_cannot_be_deleted_while_processing() -> None:
+    store = BlockingVectorStore()
+    service = DocumentService(vector_store=store)
+    upload = service.submit_upload(
+        filename="processing.txt",
+        content=b"Invoice\nVendor: Still Processing Ltd\nTotal Amount: EUR 10.00",
+    )
+    assert store.started.wait(timeout=5)
+
+    try:
+        with pytest.raises(DocumentProcessingActiveError):
+            service.delete(upload.document_id)
+        assert service.get_status(upload.document_id) is not None
+    finally:
+        store.release.set()
+        _wait_for_status(service, upload.document_id, "completed")
 
 
 def _wait_for_status(

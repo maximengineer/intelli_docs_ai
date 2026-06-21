@@ -14,7 +14,7 @@ class SourceCitation(BaseModel):
 
 class QARequest(BaseModel):
     question: str = Field(min_length=3)
-    document_ids: list[str] | None = None
+    document_ids: list[str] | None = Field(default=None, max_length=10)
 
 
 class QAResponse(BaseModel):
