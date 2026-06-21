@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     enable_llm: bool = False
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_model: str = "openai/gpt-4o-mini"
+    llm_model: str = "deepseek/deepseek-v4-flash"
     llm_temperature: float = 0.0
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)
