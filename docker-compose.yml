@@ -30,7 +30,8 @@ services:
     environment:
       DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
       ENABLE_LLM: ${ENABLE_LLM:-false}
-      EMBEDDING_BACKEND: hash
+      STRICT_PROVIDER_MODE: ${STRICT_PROVIDER_MODE:-false}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-hash}
       REQUIRE_DATABASE_READY: "true"
       VECTOR_STORE_BACKEND: postgres
       DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
@@ -55,8 +56,6 @@ services:
       start_period: 10s
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   worker:
@@ -118,25 +117,16 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    env_file:
-      - .env
     environment:
-      ENABLE_LLM: "true"
-      DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
-      VECTOR_STORE_BACKEND: postgres
-      EMBEDDING_BACKEND: ${LIVE_EMBEDDING_BACKEND:-hash}
-      DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
-      UPLOAD_STORAGE_DIR: /app/data/uploads
+      INTELLIDOCS_API_URL: http://backend:8000
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-hash}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-openai/text-embedding-3-small}
       LIVE_REQUIRE_PROVIDER_EMBEDDINGS: ${LIVE_REQUIRE_PROVIDER_EMBEDDINGS:-false}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
-    volumes:
-      - uploads_data:/app/data/uploads
+      LIVE_HTTP_TIMEOUT_SECONDS: ${LIVE_HTTP_TIMEOUT_SECONDS:-120}
+      LIVE_POLL_DEADLINE_SECONDS: ${LIVE_POLL_DEADLINE_SECONDS:-240}
     command: python scripts/run_live_smoke.py
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
+      backend:
         condition: service_healthy
 
 volumes:
