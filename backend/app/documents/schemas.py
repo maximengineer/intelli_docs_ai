@@ -87,6 +87,8 @@ class DocumentStatusResponse(BaseModel):
     document_id: str
     filename: str
     status: DocumentStatus
+    processing_backend: Literal["thread", "celery"] | None = None
+    task_id: str | None = None
     needs_review: bool = False
     steps: list[ProcessingStep]
     branches: list[BranchStatus] = Field(default_factory=list)

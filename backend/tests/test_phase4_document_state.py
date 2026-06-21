@@ -38,6 +38,8 @@ def test_in_memory_repository_persists_document_status_and_chunks() -> None:
     assert stored == document
     assert status is not None
     assert status.status == "completed"
+    assert status.processing_backend == "thread"
+    assert status.task_id == "task_phase4"
     assert {step.name: step.status for step in status.steps}["parsing"] == "completed"
     assert results["extracting"]["extracted_fields"]["document_type"] == "invoice"
 

@@ -21,6 +21,10 @@ if config.config_file_name is not None:
 # `postgres` service inside Docker), falling back to alembic.ini's sqlalchemy.url.
 _database_url = os.environ.get("DATABASE_URL")
 if _database_url:
+    if _database_url.startswith("postgresql://"):
+        _database_url = _database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    elif _database_url.startswith("postgres://"):
+        _database_url = _database_url.replace("postgres://", "postgresql+psycopg://", 1)
     config.set_main_option("sqlalchemy.url", _database_url)
 
 target_metadata = Base.metadata

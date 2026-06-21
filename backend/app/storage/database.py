@@ -50,80 +50,12 @@ def check_pgvector_ready(
     try:
         with database_connection(database_url, connect_timeout=2) as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    select
-                        exists(select 1 from pg_extension where extname = 'vector'),
-                        to_regclass('public.documents') is not null,
-                        to_regclass('public.document_chunks') is not null,
-                        to_regclass('public.ix_document_chunks_embedding') is not null,
-                        exists(
-                            select 1
-                            from pg_constraint
-                            where conname = 'fk_document_chunks_document_id'
-                        )
-                    """
+                return _pgvector_schema_ready(
+                    cursor,
+                    expected_dimension=expected_dimension,
+                    expected_operator_class=expected_operator_class,
+                    expected_index_type=expected_index_type,
                 )
-                (
-                    extension_ready,
-                    documents_ready,
-                    chunks_ready,
-                    embedding_index_ready,
-                    chunk_fk_ready,
-                ) = cursor.fetchone()
-                cursor.execute(
-                    """
-                    select format_type(attribute.atttypid, attribute.atttypmod)
-                    from pg_attribute attribute
-                    join pg_class class on class.oid = attribute.attrelid
-                    join pg_namespace namespace on namespace.oid = class.relnamespace
-                    where namespace.nspname = 'public'
-                      and class.relname = 'document_chunks'
-                      and attribute.attname = 'embedding'
-                      and not attribute.attisdropped
-                    """
-                )
-                row = cursor.fetchone()
-                cursor.execute(
-                    """
-                    select access_method.amname, operator_class.opcname
-                    from pg_index index_info
-                    join pg_class index_class
-                      on index_class.oid = index_info.indexrelid
-                    join pg_namespace namespace
-                      on namespace.oid = index_class.relnamespace
-                    join pg_am access_method
-                      on access_method.oid = index_class.relam
-                    join pg_opclass operator_class
-                      on operator_class.oid = index_info.indclass[0]
-                    where namespace.nspname = 'public'
-                      and index_class.relname = 'ix_document_chunks_embedding'
-                    """
-                )
-                index_row = cursor.fetchone()
-        column_type = row[0] if row else None
-        expected_type = f"vector({expected_dimension})" if expected_dimension else None
-        column_ready = column_type == expected_type if expected_type else bool(column_type)
-        index_type = index_row[0] if index_row else None
-        operator_class = index_row[1] if index_row else None
-        index_type_ready = (
-            index_type == expected_index_type if expected_index_type else bool(index_type)
-        )
-        operator_class_ready = (
-            operator_class == expected_operator_class
-            if expected_operator_class
-            else bool(operator_class)
-        )
-        return bool(
-            extension_ready
-            and documents_ready
-            and chunks_ready
-            and embedding_index_ready
-            and chunk_fk_ready
-            and column_ready
-            and index_type_ready
-            and operator_class_ready
-        )
     except Exception:
         logger.warning("pgvector_readiness_check_failed", exc_info=True)
         return False
@@ -143,48 +75,132 @@ def ensure_pgvector_schema(
     _validate_sql_identifier(operator_class, "POSTGRES_VECTOR_OPERATOR_CLASS")
     _validate_sql_identifier(index_type, "POSTGRES_VECTOR_INDEX_TYPE")
 
+    readiness_kwargs = {
+        "expected_dimension": dimension,
+        "expected_operator_class": operator_class,
+        "expected_index_type": index_type,
+    }
+    if check_pgvector_ready(database_url, **readiness_kwargs):
+        return True
+
     with database_connection(database_url, connect_timeout=2) as connection:
         with connection.cursor() as cursor:
-            cursor.execute("select pg_advisory_lock(hashtext('intellidocs_schema'))")
-            try:
-                cursor.execute("create extension if not exists vector")
-                _ensure_document_state_schema(cursor)
-                cursor.execute(
-                    f"""
-                    create table if not exists document_chunks (
-                        chunk_id text primary key,
-                        document_id text not null
-                            constraint fk_document_chunks_document_id
-                            references documents(document_id) on delete cascade,
-                        filename text not null,
-                        text text not null,
-                        page_number integer,
-                        section_title text,
-                        chunk_index integer not null,
-                        embedding vector({dimension})
-                    )
-                    """
+            cursor.execute("select pg_advisory_xact_lock(hashtext('intellidocs_schema'))")
+            if _pgvector_schema_ready(cursor, **readiness_kwargs):
+                connection.commit()
+                return True
+
+            cursor.execute("create extension if not exists vector")
+            _ensure_document_state_schema(cursor)
+            cursor.execute(
+                f"""
+                create table if not exists document_chunks (
+                    chunk_id text primary key,
+                    document_id text not null
+                        constraint fk_document_chunks_document_id
+                        references documents(document_id) on delete cascade,
+                    filename text not null,
+                    text text not null,
+                    page_number integer,
+                    section_title text,
+                    chunk_index integer not null,
+                    embedding vector({dimension})
                 )
-                _ensure_chunk_fk(cursor)
-                cursor.execute(
-                    "create index if not exists ix_document_chunks_document_id "
-                    "on document_chunks(document_id)"
-                )
-                cursor.execute(
-                    f"create index if not exists ix_document_chunks_embedding "
-                    f"on document_chunks using {index_type} (embedding {operator_class})"
-                )
-            finally:
-                try:
-                    cursor.execute("select pg_advisory_unlock(hashtext('intellidocs_schema'))")
-                except Exception:
-                    logger.warning("schema_advisory_unlock_failed", exc_info=True)
+                """
+            )
+            _ensure_chunk_fk(cursor)
+            cursor.execute(
+                "create index if not exists ix_document_chunks_document_id "
+                "on document_chunks(document_id)"
+            )
+            cursor.execute(
+                f"create index if not exists ix_document_chunks_embedding "
+                f"on document_chunks using {index_type} (embedding {operator_class})"
+            )
         connection.commit()
-    return check_pgvector_ready(
-        database_url,
-        expected_dimension=dimension,
-        expected_operator_class=operator_class,
-        expected_index_type=index_type,
+    return check_pgvector_ready(database_url, **readiness_kwargs)
+
+
+def _pgvector_schema_ready(
+    cursor: object,
+    *,
+    expected_dimension: int | None,
+    expected_operator_class: str | None,
+    expected_index_type: str | None,
+) -> bool:
+    cursor.execute(
+        """
+        select
+            exists(select 1 from pg_extension where extname = 'vector'),
+            to_regclass('public.documents') is not null,
+            to_regclass('public.document_chunks') is not null,
+            to_regclass('public.ix_document_chunks_embedding') is not null,
+            exists(
+                select 1
+                from pg_constraint
+                where conname = 'fk_document_chunks_document_id'
+            )
+        """
+    )
+    (
+        extension_ready,
+        documents_ready,
+        chunks_ready,
+        embedding_index_ready,
+        chunk_fk_ready,
+    ) = cursor.fetchone()
+    cursor.execute(
+        """
+        select format_type(attribute.atttypid, attribute.atttypmod)
+        from pg_attribute attribute
+        join pg_class class on class.oid = attribute.attrelid
+        join pg_namespace namespace on namespace.oid = class.relnamespace
+        where namespace.nspname = 'public'
+          and class.relname = 'document_chunks'
+          and attribute.attname = 'embedding'
+          and not attribute.attisdropped
+        """
+    )
+    row = cursor.fetchone()
+    cursor.execute(
+        """
+        select access_method.amname, operator_class.opcname
+        from pg_index index_info
+        join pg_class index_class
+          on index_class.oid = index_info.indexrelid
+        join pg_namespace namespace
+          on namespace.oid = index_class.relnamespace
+        join pg_am access_method
+          on access_method.oid = index_class.relam
+        join pg_opclass operator_class
+          on operator_class.oid = index_info.indclass[0]
+        where namespace.nspname = 'public'
+          and index_class.relname = 'ix_document_chunks_embedding'
+        """
+    )
+    index_row = cursor.fetchone()
+    column_type = row[0] if row else None
+    expected_type = f"vector({expected_dimension})" if expected_dimension else None
+    column_ready = column_type == expected_type if expected_type else bool(column_type)
+    actual_index_type = index_row[0] if index_row else None
+    actual_operator_class = index_row[1] if index_row else None
+    index_type_ready = (
+        actual_index_type == expected_index_type if expected_index_type else bool(actual_index_type)
+    )
+    operator_class_ready = (
+        actual_operator_class == expected_operator_class
+        if expected_operator_class
+        else bool(actual_operator_class)
+    )
+    return bool(
+        extension_ready
+        and documents_ready
+        and chunks_ready
+        and embedding_index_ready
+        and chunk_fk_ready
+        and column_ready
+        and index_type_ready
+        and operator_class_ready
     )
 
 

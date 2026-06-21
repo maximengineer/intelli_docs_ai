@@ -207,6 +207,46 @@ def test_pgvector_ready_rejects_stale_index_operator_class(monkeypatch) -> None:
     )
 
 
+def test_pgvector_schema_rechecks_after_transaction_lock(monkeypatch) -> None:
+    executed_queries: list[str] = []
+
+    class TrackingCursor(FakePgvectorCursor):
+        def execute(self, query: str, params: object | None = None) -> None:
+            del params
+            executed_queries.append(query)
+
+    class TrackingConnection(FakePgvectorConnection):
+        def __init__(self) -> None:
+            super().__init__(index_type="hnsw", operator_class="vector_cosine_ops")
+            self.commits = 0
+
+        def cursor(self) -> TrackingCursor:
+            return TrackingCursor(index_type=self._index_type, operator_class=self._operator_class)
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    connection = TrackingConnection()
+
+    @contextmanager
+    def fake_connection(database_url: str, *, connect_timeout: int = 2):
+        del database_url, connect_timeout
+        yield connection
+
+    monkeypatch.setattr(database_module, "check_pgvector_ready", lambda *args, **kwargs: False)
+    monkeypatch.setattr(database_module, "database_connection", fake_connection)
+
+    assert database_module.ensure_pgvector_schema(
+        "postgresql://example",
+        dimension=1536,
+        operator_class="vector_cosine_ops",
+        index_type="hnsw",
+    )
+    assert any("pg_advisory_xact_lock" in query for query in executed_queries)
+    assert not any(query.lstrip().lower().startswith("create ") for query in executed_queries)
+    assert connection.commits == 1
+
+
 def test_pgvector_search_rejects_mismatched_embedding_dimension(monkeypatch) -> None:
     monkeypatch.setenv("POSTGRES_VECTOR_DIMENSION", "3")
     get_settings.cache_clear()

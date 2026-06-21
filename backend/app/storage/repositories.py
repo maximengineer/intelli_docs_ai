@@ -142,9 +142,15 @@ class InMemoryDocumentRepository:
         task_id: str | None = None,
         processing_backend: str | None = None,
     ) -> None:
-        del content_hash, task_id, processing_backend
+        del content_hash
         with self._lock:
-            self._statuses[document_id] = _new_status(document_id, filename, status)
+            self._statuses[document_id] = _new_status(
+                document_id,
+                filename,
+                status,
+                task_id=task_id,
+                processing_backend=processing_backend,
+            )
             self._documents.pop(document_id, None)
             self._chunks.pop(document_id, None)
             self._ai_texts.pop(document_id, None)
@@ -153,9 +159,10 @@ class InMemoryDocumentRepository:
                 self._storage_keys[document_id] = storage_key
 
     def set_processing_task_id(self, document_id: str, task_id: str) -> None:
-        # The in-memory repo has no durable task-id column; the service tracks
-        # task ids separately, so this is intentionally a no-op.
-        del document_id, task_id
+        with self._lock:
+            status = self._statuses.get(document_id)
+            if status is not None:
+                self._statuses[document_id] = status.model_copy(update={"task_id": task_id})
 
     def get_storage_key(self, document_id: str) -> str | None:
         with self._lock:
@@ -348,7 +355,14 @@ class PostgresDocumentRepository:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    select document_id, filename, status, needs_review, processing_error
+                    select
+                        document_id,
+                        filename,
+                        status,
+                        needs_review,
+                        processing_error,
+                        processing_backend,
+                        processing_task_id
                     from documents
                     where document_id = %s
                     """,
@@ -402,6 +416,8 @@ class PostgresDocumentRepository:
             document_id=document[0],
             filename=document[1],
             status=document[2],
+            processing_backend=document[5],
+            task_id=document[6],
             needs_review=bool(document[3]),
             steps=steps,
             branches=branches,
@@ -817,11 +833,16 @@ def _new_status(
     document_id: str,
     filename: str,
     status: DocumentStatus,
+    *,
+    task_id: str | None = None,
+    processing_backend: str | None = None,
 ) -> DocumentStatusResponse:
     return DocumentStatusResponse(
         document_id=document_id,
         filename=filename,
         status=status,
+        task_id=task_id,
+        processing_backend=processing_backend,
         steps=[ProcessingStep(name=name) for name in DEFAULT_STEPS],
         branches=[BranchStatus(name=name) for name in DEFAULT_BRANCHES],
     )
