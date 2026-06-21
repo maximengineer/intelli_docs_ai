@@ -1,11 +1,15 @@
 """Tests for the LLM-backed paths using a fake client (no real network calls)."""
 
+import pytest
+from app.core.settings import get_settings
 from app.documents.extractor import extract_fields
+from app.documents.service import DocumentService
 from app.documents.summarizer import summarize_document
 from app.llm.client import get_llm_client
 from app.rag.citations import FALLBACK_ANSWER, map_citations
 from app.rag.generator import generate_answer_with_placeholders
 from app.rag.schemas import RetrievedChunk
+from pydantic import ValidationError
 
 
 class FakeLLMClient:
@@ -24,6 +28,12 @@ class FakeLLMClient:
     ) -> str:
         self.calls.append({"prompt": prompt, "system": system, "json_mode": json_mode})
         return self.response
+
+
+class FailingLLMClient:
+    def complete(self, prompt: str, **_: object) -> str:
+        del prompt
+        raise RuntimeError("provider unavailable")
 
 
 def _chunk(index: int, text: str) -> RetrievedChunk:
@@ -102,3 +112,37 @@ def test_llm_summarizer_uses_client_output() -> None:
 def test_get_llm_client_is_none_when_disabled() -> None:
     # No key / ENABLE_LLM unset in the test environment -> offline heuristics.
     assert get_llm_client() is None
+
+
+def test_strict_provider_mode_rejects_invalid_extraction(monkeypatch) -> None:
+    monkeypatch.setenv("STRICT_PROVIDER_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValidationError):
+            extract_fields("Invoice from Globex", FakeLLMClient("not json"))
+    finally:
+        get_settings.cache_clear()
+
+
+def test_strict_provider_mode_rejects_generation_failure(monkeypatch) -> None:
+    monkeypatch.setenv("STRICT_PROVIDER_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="provider unavailable"):
+            generate_answer_with_placeholders(
+                "Who is the vendor?",
+                [_chunk(0, "Acme Analytics Ltd issued the invoice.")],
+                FailingLLMClient(),
+            )
+    finally:
+        get_settings.cache_clear()
+
+
+def test_strict_provider_mode_requires_active_client(monkeypatch) -> None:
+    monkeypatch.setenv("STRICT_PROVIDER_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="active LLM client"):
+            DocumentService(llm_client=None)
+    finally:
+        get_settings.cache_clear()

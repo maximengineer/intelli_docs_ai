@@ -104,6 +104,7 @@ def test_offline_heuristic_reports_zero_api_cost_when_prices_are_configured(monk
     assert response.metrics.model_name == "offline-heuristic"
     assert response.metrics.token_usage_source == "estimate"
     assert response.metrics.estimated_cost_usd == 0.0
+    assert response.metrics.cost_estimate_available is True
 
 
 def test_provider_without_usage_metadata_is_marked_estimated(monkeypatch) -> None:
@@ -121,6 +122,30 @@ def test_provider_without_usage_metadata_is_marked_estimated(monkeypatch) -> Non
     assert response.metrics.model_name != "offline-heuristic"
     assert response.metrics.token_usage_source == "estimate"
     assert response.metrics.estimated_cost_usd > 0.0
+    assert response.metrics.cost_estimate_available is True
+
+
+def test_provider_cost_is_unavailable_without_configured_prices(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_INPUT_PRICE_PER_1M_TOKENS", "0")
+    monkeypatch.setenv("LLM_OUTPUT_PRICE_PER_1M_TOKENS", "0")
+    get_settings.cache_clear()
+    service = QAService(
+        _FakeRetriever([_chunk()]),
+        llm_client=_FakeLLM(
+            'Total is EUR 12,450. <cite index="0">',
+            TokenUsage(input_tokens=321, output_tokens=42),
+        ),
+    )
+
+    try:
+        response = service.answer(QARequest(question="What is the total amount?"))
+    finally:
+        get_settings.cache_clear()
+
+    assert response.metrics is not None
+    assert response.metrics.token_usage_source == "provider"
+    assert response.metrics.estimated_cost_usd is None
+    assert response.metrics.cost_estimate_available is False
 
 
 def test_explicit_none_disables_default_llm_clients(monkeypatch) -> None:

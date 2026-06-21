@@ -19,6 +19,8 @@ def summarize_document(text: str, llm_client: LLMClient | None = None) -> str:
         try:
             return _summarize_with_llm(clean, llm_client)
         except Exception:  # pragma: no cover - network/provider failure
+            if get_settings().strict_provider_mode:
+                raise
             logger.warning("llm_summary_failed; using offline fallback", exc_info=True)
     return _summarize_with_heuristic(clean)
 
@@ -32,7 +34,10 @@ def _summarize_with_llm(clean_text: str, llm_client: LLMClient) -> str:
         temperature=0.0,
         max_tokens=400,
     )
-    return summary.strip() or _summarize_with_heuristic(clean_text)
+    summary = summary.strip()
+    if not summary and get_settings().strict_provider_mode:
+        raise ValueError("Provider returned an empty document summary.")
+    return summary or _summarize_with_heuristic(clean_text)
 
 
 def _summarize_with_heuristic(clean_text: str) -> str:

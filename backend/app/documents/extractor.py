@@ -28,6 +28,8 @@ def extract_fields(text: str, llm_client: LLMClient | None = None) -> ExtractedF
         try:
             return _extract_with_llm(text, llm_client)
         except Exception:  # pragma: no cover - network/provider failure
+            if get_settings().strict_provider_mode:
+                raise
             logger.warning("llm_extraction_failed; using offline fallback", exc_info=True)
     return _extract_with_heuristic(text)
 
@@ -46,6 +48,8 @@ def _extract_with_llm(text: str, llm_client: LLMClient) -> ExtractedFields:
         # Validate against the Pydantic schema rather than regex-parsing the JSON.
         return ExtractedFields.model_validate_json(raw)
     except ValidationError:
+        if get_settings().strict_provider_mode:
+            raise
         logger.warning("llm_extraction_invalid_schema; using offline fallback")
         return _extract_with_heuristic(text)
 

@@ -48,7 +48,8 @@ class QAMetrics(BaseModel):
     input_tokens: int
     output_tokens: int
     token_usage_source: Literal["provider", "estimate"]
-    estimated_cost_usd: float
+    estimated_cost_usd: float | None
+    cost_estimate_available: bool
     price_table_as_of: str
     reranker_enabled: bool
     support_check_passed: bool | None = None

@@ -143,6 +143,8 @@ def get_llm_client() -> LLMClient | None:
             title=settings.llm_title,
         )
     except Exception:  # pragma: no cover - misconfiguration / missing SDK
+        if settings.strict_provider_mode:
+            raise
         logger.warning("llm_client_init_failed; falling back to offline heuristics", exc_info=True)
         return None
     logger.info("llm_client_ready model=%s", settings.llm_model)

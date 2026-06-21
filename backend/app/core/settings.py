@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)
     llm_max_input_chars: int = 12_000
+    strict_provider_mode: bool = False
     # Sent to OpenRouter for attribution; harmless if left at defaults.
     llm_referer: str = "http://localhost:9999"
     llm_title: str = "IntelliDocs AI"

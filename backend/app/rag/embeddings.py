@@ -147,6 +147,8 @@ def get_embedding_model() -> EmbeddingModel:
             )
             return model
         except Exception:  # pragma: no cover - missing optional dep / download issue
+            if settings.strict_provider_mode:
+                raise
             logger.warning(
                 "local_embedding_init_failed; falling back to hash embeddings", exc_info=True
             )
@@ -166,6 +168,8 @@ def get_embedding_model() -> EmbeddingModel:
             )
             return model
         except Exception:  # pragma: no cover - misconfiguration / missing SDK
+            if settings.strict_provider_mode:
+                raise
             logger.warning(
                 "openrouter_embedding_init_failed; falling back to hash embeddings", exc_info=True
             )

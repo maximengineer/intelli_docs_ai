@@ -1,3 +1,5 @@
+import pytest
+from app.core.settings import get_settings
 from app.documents.summarizer import summarize_document
 
 
@@ -79,3 +81,23 @@ def test_provider_failure_falls_back_to_heuristic() -> None:
 
     assert summary.startswith("- What this document is:")
     assert "Invoice from Example Ltd." in summary
+
+
+def test_strict_provider_mode_rejects_provider_failure(monkeypatch) -> None:
+    monkeypatch.setenv("STRICT_PROVIDER_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="provider unavailable"):
+            summarize_document("Invoice from Example Ltd.", FailingSummaryClient())
+    finally:
+        get_settings.cache_clear()
+
+
+def test_strict_provider_mode_rejects_blank_summary(monkeypatch) -> None:
+    monkeypatch.setenv("STRICT_PROVIDER_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="empty document summary"):
+            summarize_document("Invoice from Example Ltd.", FakeSummaryClient("  "))
+    finally:
+        get_settings.cache_clear()

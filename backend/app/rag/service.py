@@ -143,7 +143,16 @@ class QAService:
                 source="estimate",
             )
         model_name = settings.llm_model if self.llm_client is not None else "offline-heuristic"
-        estimated_cost_usd = estimate_cost_usd(usage) if self.llm_client is not None else 0.0
+        prices_configured = bool(
+            settings.llm_input_price_per_1m_tokens or settings.llm_output_price_per_1m_tokens
+        )
+        cost_estimate_available = self.llm_client is None or prices_configured
+        if self.llm_client is None:
+            estimated_cost_usd = 0.0
+        elif prices_configured:
+            estimated_cost_usd = estimate_cost_usd(usage)
+        else:
+            estimated_cost_usd = None
         metrics = QAMetrics(
             latency_ms=int((time.perf_counter() - started) * 1000),
             candidates_retrieved=candidates_retrieved,
@@ -154,6 +163,7 @@ class QAService:
             output_tokens=usage.output_tokens,
             token_usage_source=usage.source,
             estimated_cost_usd=estimated_cost_usd,
+            cost_estimate_available=cost_estimate_available,
             price_table_as_of=settings.price_table_as_of,
             reranker_enabled=settings.reranker_enabled,
             support_check_passed=support_check.supported if support_check else None,

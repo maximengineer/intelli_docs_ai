@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 
+from app.core.settings import get_settings
 from app.core.text import WORD_RE
 from app.llm.client import LLMClient
 from app.llm.prompt_registry import get_prompt
@@ -56,6 +57,8 @@ def generate_answer_with_placeholders(
         try:
             return _generate_with_llm(question, context, llm_client)
         except Exception:  # pragma: no cover - network/provider failure
+            if get_settings().strict_provider_mode:
+                raise
             logger.warning("llm_generation_failed; using offline fallback", exc_info=True)
     return _generate_with_heuristic(question, context)
 
