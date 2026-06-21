@@ -6,6 +6,192 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-21 — Provider model and price configuration alignment
+
+Aligned the runtime default, `.env.example` and README on
+`deepseek/deepseek-v4-flash`. Updated the example price table to the OpenRouter
+routed rates verified on 2026-06-21 (`$0.0983/M` input and `$0.1966/M` output)
+and documented that prices must be rechecked when the model changes. Runtime
+price defaults remain zero so an unpriced model override reports cost as
+unavailable instead of applying an unrelated model's rates.
+
+---
+
+## 2026-06-21 — Complete verification rerun and pgvector race fix
+
+**Context.** A full rerun showed that the default Docker test/evaluation/
+Alembic targets could reuse a stale `tests` image. After rebuilding exposed the
+current suite correctly, the isolated Celery integration caught a real
+cross-process deadlock: concurrent worker services repeated `CREATE INDEX IF
+NOT EXISTS` while the embedding branch inserted chunk rows.
+
+**Changes.**
+- Made `make test`, `make eval` and `make alembic-sql` rebuild the test image so
+  they always execute the current working tree.
+- Changed runtime pgvector initialization to return immediately when the schema
+  is already ready, serialize missing-schema work with a transaction-scoped
+  PostgreSQL advisory lock, and recheck readiness after acquiring the lock.
+  This prevents redundant DDL from racing with normal branch DML.
+- Added a regression test proving a process waiting for schema initialization
+  skips DDL when the preceding initializer has completed.
+- Forced hash embeddings across the isolated Celery target so ambient `.env`
+  settings cannot trigger an unrelated optional local-model fallback.
+
+**Tests / verification.**
+- Final rebuilt `make test`: **109 passed, 5 skipped**.
+- `make eval`: completed on 13 synthetic documents with the documented offline
+  metrics (`document_hit_at_5=1.0`, `citation_coverage=1.0`, unsupported-answer
+  rejection `0.8`, extraction accuracy `1.0`).
+- `make alembic-sql`: generated the complete two-revision PostgreSQL/pgvector
+  schema; `make alembic-integration-test`: **1 passed** on a fresh database.
+- `make celery-integration-test`: the first run exposed the schema/DML
+  deadlock; after the fix, success and durable-failure scenarios **2 passed**
+  and post-restart persistence **1 passed**, with full isolated cleanup.
+- `make live-test`: passed strict provider-backed document processing and Q&A
+  with hash embeddings, one citation and provider usage in **15.21 seconds**.
+- `make live-test-embeddings`: passed the same workflow with OpenRouter
+  `openai/text-embedding-3-small`, one citation and provider usage in **13.39
+  seconds**. Both live stacks cleaned up completely.
+
+---
+
+## 2026-06-21 — Isolated strict live-provider smoke hardening
+
+**Context.** Critical review of `make live-test` and
+`make live-test-embeddings` found shared persistent Postgres state, mixed hash
+and provider vectors, silent fallback risk after the initial provider ping,
+minute-long periods without progress, no overall timeout, direct service calls
+instead of HTTP API coverage, permissive ping validation, missing paid-run
+metrics and an unnecessary Redis host warning.
+
+**Changes.**
+- Rebuilt both live targets on a shared internal Make recipe that creates a
+  unique Compose project and fresh Postgres/upload volumes for every run, uses
+  random host ports, captures failure logs and removes temporary containers,
+  images, networks and volumes.
+- Added a configurable `LIVE_TEST_TIMEOUT_SECONDS` overall deadline and flushed
+  JSON stage events for readiness, upload, processing and Q&A.
+- Changed the smoke script into an HTTP client for the real FastAPI
+  upload/status/document/Q&A contracts; the client no longer receives `.env` or
+  the provider key.
+- Added `STRICT_PROVIDER_MODE`, forced by live targets, so LLM initialization,
+  extraction, summarisation, generation and provider embedding setup cannot
+  silently downgrade to heuristic/hash fallbacks after provider errors.
+- Removed the superficial substring-based `ok` ping. Successful strict document
+  processing plus provider-reported Q&A usage now prove the actual calls.
+- Restricted Q&A to the uploaded document and require exactly one citation,
+  preventing cross-run retrieval from passing unnoticed.
+- Added provider token counts, usage source, configured estimated cost and
+  elapsed time to live output.
+- Made provider cost explicitly unavailable (`null`) when token prices are not
+  configured, instead of presenting a misleading zero-cost paid call; offline
+  API cost remains a known zero.
+- Removed Redis as an unconditional backend dependency; thread-mode live tests
+  now start only Postgres and backend. Documented `vm.overcommit_memory=1` for
+  self-managed Redis/Celery deployment hosts.
+- Added strict-mode regression tests and forced strict mode off in the hermetic
+  default test fixture.
+- Updated README, architecture, limitations, deployment notes, `.env.example`
+  and the ignored implementation guide.
+
+**Tests / verification.**
+- Final `make live-test`: passed through strict FastAPI upload/status/document/
+  Q&A with hash embeddings, provider usage (**250 input / 25 output tokens**),
+  exactly one citation and full isolated cleanup in **11.82 seconds**.
+- Final `make live-test-embeddings`: passed with OpenRouter
+  `openai/text-embedding-3-small` embeddings, provider usage (**252 input / 86
+  output tokens**), exactly one citation and a separate fresh database in
+  **10.28 seconds**.
+- Both final live runs returned `estimated_cost_usd: null` and
+  `cost_estimate_available: false`, correctly reflecting that provider token
+  prices are not configured instead of reporting a misleading zero.
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: **108 passed, 5 skipped**, including
+  strict fallback and unavailable-provider-price metric coverage.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed.
+- `make config-all`: passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-21 — Isolated Celery integration hardening
+
+**Context.** A direct `make celery-integration-test` review found that the target
+reused the normal Compose project and an incompatible pre-Postgres-18 volume,
+could stop a running demo stack, discarded failure logs during cleanup and
+published an unnecessary fixed host port. A manually isolated run proved the
+underlying Redis/Celery/Postgres path was healthy.
+
+**Changes.**
+- Made `make celery-integration-test` create a unique Compose project with fresh
+  Postgres/upload volumes and random host ports.
+- Added failure-aware cleanup that prints Postgres, Redis, backend and worker
+  logs before removing temporary containers, images, networks and volumes.
+- Preserved `KEEP_STACK=true` debugging without risking the normal demo project;
+  the generated project name is printed for inspection.
+- Added `processing_backend` and `task_id` to the public document status response
+  and persisted/in-memory repository mappings.
+- Expanded the real integration suite to assert all readiness checks, UUID
+  Celery task identity, execution metadata, completed sequential/fan-out stages,
+  durable corrupt-document worker failure and completed state after backend
+  restart.
+- Kept chord errback argument-order behavior and task time limits in focused unit
+  tests; the integration failure case exercises the real broker/worker/database
+  path without adding production fault-injection hooks.
+- Updated README, architecture and the ignored implementation guide.
+
+**Tests / verification.**
+- `make celery-integration-test`: initial success/failure tests **2 passed**;
+  post-restart persistence test **1 passed**; all temporary Docker resources
+  removed.
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: **102 passed, 5 skipped**; Docker
+  integration cases remain opt-in in the default suite.
+- `UV_CACHE_DIR=.uv-cache uv run ruff check .`: passed.
+- `UV_CACHE_DIR=.uv-cache uv run ruff format --check .`: passed.
+- `make config-all`: passed.
+- `git diff --check`: passed.
+
+---
+
+## 2026-06-21 — Online Alembic migration integration gate
+
+**Context.** A critical review of `make alembic-sql` confirmed that it rendered
+the complete `0001` -> `0002` SQL successfully but did not connect to Postgres,
+so it could not prove that the migrations execute or create the expected live
+schema.
+
+**Changes.**
+- Added `make alembic-integration-test`.
+- The target starts PostgreSQL/pgvector under a unique temporary Compose project,
+  applies `alembic upgrade head` online, runs focused schema validation and
+  always removes the temporary containers and volume on exit.
+- Added an opt-in integration test that validates the head revision, pgvector
+  extension, durable tables, required document columns, `vector(1536)` column,
+  HNSW/cosine index and cascading chunk-to-document foreign key.
+- The first online run exposed that Alembic's plain `postgresql://` URL selected
+  the uninstalled `psycopg2` dialect. Normalized Postgres URLs in `migrations/env.py`
+  and `alembic.ini` to SQLAlchemy's Psycopg 3 dialect.
+- The second run confirmed both migrations executed, then exposed the default
+  test fixture intentionally removing `DATABASE_URL`; the schema assertion now
+  uses a dedicated opt-in `ALEMBIC_TEST_DATABASE_URL` without weakening the
+  hermetic default test boundary.
+- Updated README, architecture and the ignored implementation guide to
+  distinguish offline SQL rendering from online migration verification.
+
+**Tests / verification.**
+- `make alembic-integration-test`: **1 passed** after applying both migrations
+  to fresh PostgreSQL 18/pgvector; temporary container, image, network and
+  volume were removed.
+- `make alembic-sql`: passed after the Psycopg 3 URL correction.
+- `make config-all`: passed.
+- Initial online execution caught and drove the Psycopg 3 dialect fix before the
+  gate passed.
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: **102 passed, 3 skipped**; the new
+  database integration test remains opt-in.
+- Full Ruff check/format checks and `git diff --check`: passed.
+
+---
+
 ## 2026-06-14 — Final implementation advice appendix audit
 
 **Context.** Rechecked the implementation guide final advice section against

@@ -30,7 +30,11 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
   but unanswerable questions it can return a cited-but-irrelevant sentence
   instead of refusing. This is visible in the evaluation as an
   `unsupported_answer_rejection_rate` below 1.0.
-- The live OpenRouter path is exercised in tests via a mocked client; the committed evaluation snapshot is the offline backend only (the live path needs a key and is non-deterministic, so it is not committed as a fixed number).
+- Unit tests exercise OpenRouter behavior through a mocked client. Opt-in live
+  smoke targets exercise strict provider behavior through the FastAPI API using
+  isolated fresh databases, but no live result is committed as a fixed metric
+  because provider behavior is paid and non-deterministic. The committed
+  evaluation snapshot remains offline only.
 - The support-check gate verifies citation integrity and lexical grounding overlap: final answers must have mapped citations from retrieved context and share content tokens with cited chunks. It is not a semantic entailment checker, so a cited-but-wrong answer can still pass the gate.
 - The evaluation does not deeply score answer *correctness* (only retrieval hit, citation presence, support-check pass rate, unsupported-answer rejection and extraction field accuracy), so an answer that cites the wrong-but-plausible document is only partially penalised by these metrics.
 - Purpose-scoped privacy variants are produced by the redaction helper. The

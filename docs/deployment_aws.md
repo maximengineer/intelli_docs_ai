@@ -28,8 +28,14 @@ is enterprise-ready.
 - Keep raw document text out of logs.
 - Set upload size limits at the load balancer and application layers.
 - Store secrets in AWS Secrets Manager or SSM Parameter Store.
+- For self-managed Redis on a VPS, set `vm.overcommit_memory=1` persistently
+  (for example in `/etc/sysctl.d/99-intellidocs-redis.conf`) before using Redis
+  as the Celery broker. Managed services such as ElastiCache handle host kernel
+  configuration outside the application stack.
 - Treat cost estimates as application logs, not billing-grade accounting.
   `token_usage_source=provider` means provider usage metadata was available;
   `token_usage_source=estimate` means the app used a local word-count estimate.
   Offline/local heuristic runs report API cost as `$0.00`; local compute cost is
-  not estimated.
+  not estimated. Provider calls report `estimated_cost_usd=null` and
+  `cost_estimate_available=false` when token prices have not been configured;
+  zero must not be interpreted as a free paid-provider call.

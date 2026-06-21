@@ -18,11 +18,11 @@ POST /documents/upload
   -> marks document completed or failed
 ```
 
-`GET /documents/{document_id}/status` exposes document status plus processing
-steps and branch statuses. The default API path stays `thread` for demo
-reliability, while `DOCUMENT_PROCESSING_BACKEND=celery` enables real Celery
-dispatch. In Celery mode the API queues a canvas using a storage key, not raw
-file bytes:
+`GET /documents/{document_id}/status` exposes document status, processing
+backend, task ID, processing steps and branch statuses. The default API path
+stays `thread` for demo reliability, while
+`DOCUMENT_PROCESSING_BACKEND=celery` enables real Celery dispatch. In Celery
+mode the API queues a canvas using a storage key, not raw file bytes:
 
 ```text
 seed document from storage key
@@ -49,8 +49,8 @@ Docker Compose is the primary runtime target for the project. The stack includes
 - `worker`: Celery worker using the same backend image.
 - `frontend`: Streamlit UI built as its own image.
 - `tests`: profile-gated test runner using the same backend image.
-- `live-tests`: profile-gated provider smoke test using `.env` and the same
-  backend image.
+- `live-tests`: profile-gated HTTP client for the strict provider smoke, built
+  from the same backend image but without receiving the provider key.
 
 The backend image copies application code, worker code, prompts, sample data,
 scripts, Alembic migrations and `alembic.ini`, so tests, evaluation and migration
@@ -58,9 +58,13 @@ checks can run inside containers. The `tests` service intentionally does not
 load `.env`; it forces offline deterministic settings so real API keys and host
 configuration cannot affect the test suite.
 
-`live-tests` is the explicit exception: it loads `.env`, forces
-`ENABLE_LLM=true`, and runs a small provider-backed smoke test. It is opt-in
-because it may incur cost and depends on external provider availability.
+The isolated live-test target is the explicit exception to offline verification:
+the backend loads `.env`, forces `ENABLE_LLM=true` plus strict provider mode and
+runs against a fresh Postgres volume. The key is not passed to the live-test
+client, which calls the real FastAPI upload/status/document/Q&A endpoints. Each
+embedding mode gets a separate Compose project so incompatible vector spaces
+cannot mix. It is opt-in because it incurs cost and depends on external provider
+availability.
 
 ## Query
 
@@ -136,6 +140,20 @@ and operator class, because `CREATE INDEX IF NOT EXISTS` will not replace a
 stale index with the same name. Changing the embedding model's dimension or the
 pgvector index/operator configuration requires a new migration.
 
+`make alembic-sql` verifies offline migration rendering only.
+`make alembic-integration-test` uses a unique temporary Docker Compose project
+to apply `alembic upgrade head` to a fresh PostgreSQL/pgvector database and
+validate the revision, tables, required document columns, vector dimension,
+HNSW cosine index and chunk foreign key. Its containers, image, network and
+volume are removed on exit, so it does not mutate the normal demo database.
+
+`make celery-integration-test` follows the same isolation rule. It uses a unique
+Compose project, fresh database/upload volumes and random host ports; verifies
+the successful fan-out path and a durable worker failure; restarts the backend
+and confirms completed document state remains readable; then removes temporary
+containers, images, networks and volumes. Service logs are emitted before
+cleanup when the gate fails.
+
 Postgres access goes through a bounded per-process psycopg connection pool,
 configured with `DATABASE_POOL_MIN_SIZE`, `DATABASE_POOL_MAX_SIZE` and
 `DATABASE_POOL_TIMEOUT_SECONDS`. This keeps the backend and Celery branches from
@@ -162,7 +180,8 @@ them up.
 Q&A emits structured JSON run events through the `intellidocs.run` logger for
 run metrics and failures. The API response also returns run metrics including
 latency, candidate/context counts, citation count, model name, token usage
-source, estimated cost, reranker status and support-check result.
+source, estimated cost availability/value, reranker status and support-check
+result.
 
 Document ingestion progress is primarily observed through
 `GET /documents/{document_id}/status`, which exposes the document status,

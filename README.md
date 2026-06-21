@@ -99,11 +99,29 @@ Check Alembic SQL generation inside Docker:
 make alembic-sql
 ```
 
+Apply the migrations to an isolated fresh PostgreSQL/pgvector database and
+validate the resulting revision, tables, columns, vector index and foreign key:
+
+```bash
+make alembic-integration-test
+```
+
+This integration target uses a unique temporary Compose project and removes its
+containers, image, network and volume on exit. Unlike `make alembic-sql`, it
+proves that the migrations execute successfully against PostgreSQL.
+
 Run the opt-in Celery/Postgres integration test against a Docker stack:
 
 ```bash
 make celery-integration-test
 ```
+
+This target uses a unique Compose project, fresh Postgres/upload volumes and
+random host ports, so it cannot mutate or stop the normal demo stack. It checks
+worker/broker readiness, successful fan-out processing, durable worker failure,
+persisted Celery task metadata and document state after a backend restart. On
+failure it prints service logs before cleanup; set `KEEP_STACK=true` to preserve
+the uniquely named stack for manual inspection.
 
 The `tests` service does not load `.env`; it forces deterministic offline
 settings (`ENABLE_LLM=false`, `EMBEDDING_BACKEND=hash`,
@@ -117,17 +135,24 @@ Run a live provider smoke test inside Docker:
 make live-test
 ```
 
-The `live-tests` service **does** load `.env`, forces `ENABLE_LLM=true`, and
-runs one synthetic document through provider-backed LLM initialization,
-document processing and cited Q&A. It defaults to hash embeddings to keep the
-smoke cheap and focused on the LLM path. To also require provider embeddings:
+The isolated live backend loads `.env` and forces `ENABLE_LLM=true`; the
+`live-tests` HTTP client does not receive the provider key. It runs one synthetic
+document through the real FastAPI upload/status/document/Q&A contracts. The
+backend runs in strict provider mode, so extraction,
+summarisation and Q&A cannot silently fall back to heuristics. The target uses a
+fresh isolated Postgres volume, prints stage progress and provider token/cost
+metadata, applies an overall timeout, and removes every temporary Docker
+resource. It defaults to hash embeddings to keep the smoke cheaper and focused
+on the LLM path. To also require provider embeddings:
 
 ```bash
 make live-test-embeddings
 ```
 
-Live tests are opt-in because they can incur provider cost and are less
-deterministic than the offline test suite.
+`make live-test-embeddings` uses a separate fresh database, so hash and provider
+vectors are never mixed. Live tests are opt-in because they incur provider cost
+and are less deterministic than the offline test suite. Override the five-minute
+deadline with `LIVE_TEST_TIMEOUT_SECONDS=<seconds>` when needed.
 
 Run `make help` for all Docker workflow commands, including logs, status,
 shutdown and Compose config validation.
@@ -161,8 +186,14 @@ EMBEDDING_BACKEND=local
 # in .env:
 ENABLE_LLM=true
 OPENROUTER_API_KEY=sk-or-...        # https://openrouter.ai/keys
-LLM_MODEL=qwen/qwen3.6-plus         # any OpenRouter chat model
+LLM_MODEL=deepseek/deepseek-v4-flash
+PRICE_TABLE_AS_OF=2026-06-21
+LLM_INPUT_PRICE_PER_1M_TOKENS=0.0983
+LLM_OUTPUT_PRICE_PER_1M_TOKENS=0.1966
 ```
+
+Token prices are model-specific and can change; verify them in OpenRouter before
+changing the model or relying on estimated cost output.
 
 For local Python development:
 
