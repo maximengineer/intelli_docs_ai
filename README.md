@@ -1,6 +1,6 @@
 # IntelliDocs AI
 
-IntelliDocs AI is a production-style document intelligence system. Upload business documents, extract structured facts, ask questions, and get answers with backend-verified citations — or a clear refusal when the documents don't contain the answer.
+IntelliDocs AI is a production-style document intelligence system. Upload business documents, extract structured facts, ask questions, and get answers with backend-verified citations, or a clear refusal when the documents don't contain the answer.
 
 ## What Makes This Different
 
@@ -8,13 +8,13 @@ Calling an LLM API is easy. The hard part is everything around it:
 
 **Citations you can trust.** Most RAG demos let the LLM say "Source: page 3" — the LLM invented that. Here, the LLM only outputs `<cite index="0">` placeholders. The backend validates each index against the actual retrieved context array and maps it to real metadata: document ID, filename, page number, section, chunk ID, and a verbatim snippet. An invalid index triggers a fallback, not a hallucinated citation.
 
-**Knowing when to say "I don't know."** The system detects when retrieved context doesn't support the question — through citation-integrity and lexical-grounding checks — and returns an explicit `insufficient_information` response with empty sources. Retrieved context is never presented as evidence for an unsupported answer.
+**Knowing when to say "I don't know."** The system detects when retrieved context doesn't support the question (citation-integrity and lexical-grounding checks) and returns an explicit `insufficient_information` response with empty sources. Retrieved context is never presented as evidence for an unsupported answer.
 
 **Measured quality, not vibes.** An adversarial evaluation pipeline (keyword-overlapping distractor documents, negative questions) measures `document_hit_at_5`, `citation_coverage`, `unsupported_answer_rejection_rate`, and `extraction_field_accuracy`. The 0.8 rejection rate is a genuine limitation of the lexical fallback, reported honestly — no fake confidence scores or invented benchmarks.
 
-**Durable async document processing.** Documents go through parse, privacy redaction, chunk, then fan out to parallel branches (embedding, extraction, summarisation), and aggregate into durable Postgres state. The API process reads state written by a separate Celery worker. Branch-level status tracking, idempotent retries, content-hash deduplication, and task-safe storage references (no raw bytes through Redis).
+**Durable async document processing.** Documents go through parse, privacy redaction, chunk, then fan out to parallel branches (embedding, extraction, summarisation), and aggregate into durable Postgres state. The API process reads state written by a separate Celery worker, which tracks status per branch, retries idempotently, deduplicates by content hash, and passes only task-safe storage references (no raw bytes) through Redis.
 
-**Production-aware engineering.** Upload safety (MIME/size/extension validation, parser timeouts), pgvector with dimension guards and advisory-lock schema init, bounded connection pooling, Celery task time limits, privacy-aware text variants (`raw`/`ai`/`display`), Alembic migrations that tolerate self-created schemas. None of this is glamorous, but it separates a toy from something production-adjacent.
+**Production-aware engineering.** It also covers upload safety (MIME/size/extension validation, parser timeouts), pgvector with dimension guards and advisory-lock schema init, bounded connection pooling, Celery task time limits, privacy-aware text variants (`raw`/`ai`/`display`), and Alembic migrations that tolerate self-created schemas. None of this is glamorous, but it separates a toy from something production-adjacent.
 
 This is a portfolio project. It says "production-style" and "portfolio implementation," not "enterprise-ready." It documents its limitations rather than hiding them.
 
@@ -26,7 +26,7 @@ Business teams review invoices, contracts, policies and reports manually. Summar
 
 The AI sits behind small adapter interfaces (`LLMClient`, `EmbeddingModel`):
 
-- **Generation / summarisation / extraction** — OpenRouter (one `OPENROUTER_API_KEY`, OpenAI-compatible, pick any chat model). Falls back to a deterministic extractive answerer with no key.
+- **Generation / summarisation / extraction** — OpenRouter (cloud, one `OPENROUTER_API_KEY`, OpenAI-compatible, pick any chat model) or Ollama (local, no key, `make up-ollama`). Falls back to a deterministic extractive answerer with no key and no local model.
 - **Embeddings / retrieval** — zero-dependency hash embeddings by default, with opt-in local `sentence-transformers` for real semantic search or OpenRouter embeddings when configured.
 
 Because of the fallbacks, tests, CI and a key-less clone always run.
@@ -322,7 +322,7 @@ FastAPI upload -> durable upload store -> queued thread/Celery task
 Question -> retriever -> reranker -> answer generator -> citation mapper -> support gate -> API response + metrics
 ```
 
-All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter or on deterministic offline fallbacks selected by config. The default local development path remains in-memory for easy use; Docker runs the durable path against PostgreSQL/pgvector with `VECTOR_STORE_BACKEND=postgres`.
+All AI calls go through a thin provider adapter (`LLMClient` / `EmbeddingModel`), so the same pipeline runs on OpenRouter, local Ollama, or deterministic offline fallbacks selected by config. The default local development path remains in-memory for easy use; Docker runs the durable path against PostgreSQL/pgvector with `VECTOR_STORE_BACKEND=postgres`.
 
 The citation mapper is the trust boundary. The generator only emits placeholders such as `<cite index="0">`; the backend validates each index against the retrieved context and maps it to real document ID, filename, page, section, chunk ID and snippet metadata. An out-of-range index (which a real model can produce) is rejected and downgraded to the insufficient-information fallback rather than shown.
 
@@ -340,7 +340,7 @@ plan-vs-reality deviations is in `docs/dev_log.md`.
 ## Resume Bullets
 
 - Built IntelliDocs AI, a production-inspired document intelligence portfolio project using Python, FastAPI, Streamlit, RAG and structured (Pydantic-validated) extraction.
-- Designed a provider-adapter layer (OpenRouter, OpenAI-compatible) with deterministic offline fallbacks, so summaries, extraction and cited answers run with or without an API key and tests use a mocked client.
+- Designed a provider-adapter layer (OpenRouter cloud API or local Ollama, both OpenAI-compatible) with deterministic offline fallbacks, so summaries, extraction and cited answers run with or without an API key and tests use a mocked client.
 - Implemented backend-verified citation mapping that validates LLM-chosen indexes against retrieved context, preventing citation hallucination, with an insufficient-information fallback for unsupported questions.
 - Created an adversarial offline evaluation (distractor documents, keyword-overlapping negatives) measuring retrieval hit-rate, citation coverage, unsupported-answer rejection and extraction accuracy — reporting real, non-perfect numbers.
 
