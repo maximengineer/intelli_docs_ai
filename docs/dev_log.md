@@ -6,6 +6,76 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-06-22 — Phase 4 critical review and fixes
+
+**Context.** Full critical review of the Phase 4 durable async workflow
+implementation before committing.
+
+**Issues found and fixed.**
+
+- **HIGH — Celery double-init race (data loss).** After dispatching the Celery
+  canvas, `submit_upload` called `init_document` a second time with the real
+  task ID. That destructive upsert resets `ai_text = null`, which caused the
+  extraction and summarisation branches to fail with "Document AI text is not
+  available" whenever Redis enqueued the task before the second init committed.
+  Fixed by replacing the destructive re-init with a targeted
+  `set_processing_task_id` repository method (SQL `UPDATE`, no data reset).
+  Added `set_processing_task_id` and `get_storage_key` to the
+  `DocumentRepository` Protocol and both implementations.
+
+- **MED — Sync `upload()` defeated content-hash dedup.** The synchronous path
+  called `init_document` unconditionally, then checked for an existing completed
+  document inside `_process_document`. The check always saw `status != completed`
+  because the init had just reset it. Fixed by checking `get_document` before
+  `init_document` in `upload()`, matching the pattern already used by
+  `submit_upload`.
+
+- **MED — `processing_backend.py` absent.** The guide's file map listed it;
+  the backend switch was inline only. Added
+  `backend/app/documents/processing_backend.py` with `ProcessingBackend` type
+  and `resolve_processing_backend()`, which also enforces the
+  `celery + memory = error` invariant in one place.
+
+- **MED — No automated Celery/Postgres integration test.** The distributed path
+  was manual-smoke-only. Added
+  `backend/tests/integration/test_celery_document_processing.py` (three tests:
+  successful round-trip, durable failure, completed-document survives restart)
+  and `backend/tests/integration/test_alembic_migrations.py`, both gated behind
+  environment flags to keep the fast unit gate hermetic. This is the test that
+  would have caught the double-init race automatically.
+
+- **LOW — Connection-per-call, no pooling.** Every repository method opened a
+  fresh `psycopg.connect`. Added a bounded per-process connection pool
+  (`DATABASE_POOL_MIN_SIZE`, `DATABASE_POOL_MAX_SIZE`,
+  `DATABASE_POOL_TIMEOUT_SECONDS`) with documented settings in `.env.example`
+  and `limitations.md`.
+
+- **LOW — Upload blobs never cleaned up.** `LocalUploadStore.delete` existed but
+  was never called. Added deletion of the upload blob after successful processing
+  completion in `_process_document`. Failure paths retain the blob for retry.
+
+- **LOW — `document_chunks` dual ownership.** Both
+  `PostgresDocumentRepository.save_chunks` (text-only, `embedding=null`) and
+  `PgVectorStore.index` (full row + embedding) write the same table. Write
+  ordering is safe (save before index on all paths), but commented to prevent a
+  future reordering from silently wiping embeddings.
+
+**Tests / verification.**
+- `ruff format --check .`: passed.
+- `ruff check .`: passed.
+- `uv run pytest backend/tests -q`: **115 passed, 5 skipped**.
+- 5 skips are all correctly gated: sentence_transformers (optional dep), Alembic
+  integration (needs isolated Postgres via `make alembic-integration-test`),
+  Celery integration × 3 (needs `RUN_CELERY_INTEGRATION=1` + Docker stack via
+  `make celery-integration-test`).
+
+**Caveat.** The Celery + Postgres + Redis distributed path is covered by the
+new integration tests but those are Docker-only targets; the fast local gate
+remains hermetic and cannot exercise them. Run `make celery-integration-test`
+against a fresh stack to reconfirm before relying on the distributed path.
+
+---
+
 ## 2026-06-21 — Multi-document workspace and durable removal
 
 Added a Streamlit workspace for up to 10 documents per session. The uploader now
