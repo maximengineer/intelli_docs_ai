@@ -30,6 +30,9 @@ services:
     environment:
       DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
       ENABLE_LLM: ${ENABLE_LLM:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi4-mini}
       STRICT_PROVIDER_MODE: ${STRICT_PROVIDER_MODE:-false}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-hash}
       REQUIRE_DATABASE_READY: "true"
@@ -67,6 +70,9 @@ services:
     environment:
       DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
       ENABLE_LLM: ${ENABLE_LLM:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi4-mini}
       EMBEDDING_BACKEND: hash
       VECTOR_STORE_BACKEND: postgres
       DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
@@ -81,6 +87,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   frontend:
     build:
@@ -134,3 +153,4 @@ services:
 volumes:
   postgres_data:
   uploads_data:
+  ollama_data:

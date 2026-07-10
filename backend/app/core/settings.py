@@ -63,13 +63,16 @@ class Settings(BaseSettings):
     llm_input_price_per_1m_tokens: float = 0.0
     llm_output_price_per_1m_tokens: float = 0.0
 
-    # --- LLM provider (OpenRouter, OpenAI-compatible) -----------------------
+    # --- LLM provider --------------------------------------------------------
     # Generation/summarisation/extraction use the model only when enable_llm is
-    # true AND an API key is present. Otherwise the deterministic offline
-    # fallbacks run, so tests, CI and key-less demos always work.
+    # true AND the provider requirements are met. Otherwise the deterministic
+    # offline fallbacks run, so tests, CI and key-less demos always work.
     enable_llm: bool = False
+    llm_provider: Literal["openrouter", "ollama"] = "openrouter"
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    ollama_base_url: str = "http://ollama:11434/v1"
+    ollama_model: str = "phi4-mini"
     llm_model: str = "deepseek/deepseek-v4-flash"
     llm_temperature: float = 0.0
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
@@ -95,8 +98,18 @@ class Settings(BaseSettings):
         return self.max_upload_mb * 1024 * 1024
 
     @property
+    def active_llm_model(self) -> str:
+        if self.llm_provider == "ollama":
+            return self.ollama_model
+        return self.llm_model
+
+    @property
     def llm_enabled(self) -> bool:
-        return self.enable_llm and bool(self.openrouter_api_key)
+        if not self.enable_llm:
+            return False
+        if self.llm_provider == "ollama":
+            return True
+        return bool(self.openrouter_api_key)
 
     @property
     def durable_document_state_enabled(self) -> bool:

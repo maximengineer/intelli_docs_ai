@@ -142,7 +142,9 @@ class QAService:
                 output_tokens=estimate_tokens(answer),
                 source="estimate",
             )
-        model_name = settings.llm_model if self.llm_client is not None else "offline-heuristic"
+        model_name = (
+            settings.active_llm_model if self.llm_client is not None else "offline-heuristic"
+        )
         prices_configured = bool(
             settings.llm_input_price_per_1m_tokens or settings.llm_output_price_per_1m_tokens
         )

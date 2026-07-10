@@ -133,19 +133,32 @@ def get_llm_client() -> LLMClient | None:
     if not settings.llm_enabled:
         return None
     try:
-        client = OpenRouterLLMClient(
-            api_key=settings.openrouter_api_key or "",
-            base_url=settings.openrouter_base_url,
-            model=settings.llm_model,
-            timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
-            referer=settings.llm_referer,
-            title=settings.llm_title,
-        )
+        if settings.llm_provider == "ollama":
+            model = settings.ollama_model
+            client = OpenRouterLLMClient(
+                api_key="ollama",
+                base_url=settings.ollama_base_url,
+                model=model,
+                timeout=settings.llm_timeout_seconds,
+                max_retries=settings.llm_max_retries,
+                referer=settings.llm_referer,
+                title=settings.llm_title,
+            )
+        else:
+            model = settings.llm_model
+            client = OpenRouterLLMClient(
+                api_key=settings.openrouter_api_key or "",
+                base_url=settings.openrouter_base_url,
+                model=model,
+                timeout=settings.llm_timeout_seconds,
+                max_retries=settings.llm_max_retries,
+                referer=settings.llm_referer,
+                title=settings.llm_title,
+            )
     except Exception:  # pragma: no cover - misconfiguration / missing SDK
         if settings.strict_provider_mode:
             raise
         logger.warning("llm_client_init_failed; falling back to offline heuristics", exc_info=True)
         return None
-    logger.info("llm_client_ready model=%s", settings.llm_model)
+    logger.info("llm_client_ready provider=%s model=%s", settings.llm_provider, model)
     return client

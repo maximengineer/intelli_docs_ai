@@ -9,7 +9,7 @@ KEEP_STACK ?= false
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build up up-alt down restart ps logs logs-backend logs-worker logs-frontend test eval alembic-sql alembic-integration-test celery-integration-test live-test live-test-embeddings _live-test config config-all clean
+.PHONY: help build up up-alt up-ollama ollama-pull down restart ps logs logs-backend logs-worker logs-frontend test eval alembic-sql alembic-integration-test celery-integration-test live-test live-test-embeddings _live-test config config-all clean
 
 help:
 	@echo "IntelliDocs AI Docker workflow"
@@ -17,6 +17,8 @@ help:
 	@echo "App:"
 	@echo "  make build               Build backend, worker and frontend images"
 	@echo "  make up                  Start the full app stack"
+	@echo "  make up-ollama           Start with local Ollama LLM (phi4-mini, no API key)"
+	@echo "  make ollama-pull         Pull the Ollama model into the running container"
 	@echo "  make up-alt              Start using BACKEND_PORT=18000 FRONTEND_PORT=18501"
 	@echo "  make down                Stop and remove stack containers"
 	@echo "  make restart             Restart the full app stack"
@@ -51,6 +53,23 @@ up:
 
 up-alt:
 	BACKEND_PORT=18000 FRONTEND_PORT=18501 docker compose up -d --build backend worker frontend
+
+OLLAMA_MODEL ?= phi4-mini
+
+up-ollama:
+	ENABLE_LLM=true LLM_PROVIDER=ollama OLLAMA_MODEL=$(OLLAMA_MODEL) \
+		BACKEND_PORT=$(BACKEND_PORT) FRONTEND_PORT=$(FRONTEND_PORT) \
+		docker compose --profile ollama up -d --build backend worker frontend ollama
+	@echo ""
+	@echo "Waiting for Ollama to be ready..."
+	@docker compose --profile ollama exec ollama ollama pull $(OLLAMA_MODEL)
+	@echo ""
+	@echo "Ollama ready with model $(OLLAMA_MODEL)."
+	@echo "  API: http://localhost:$(BACKEND_PORT)/health"
+	@echo "  UI:  http://localhost:$(FRONTEND_PORT)"
+
+ollama-pull:
+	docker compose --profile ollama exec ollama ollama pull $(OLLAMA_MODEL)
 
 down:
 	docker compose down

@@ -52,7 +52,7 @@ For a literal reviewer walkthrough, see `docs/demo_script.md`.
 - asynchronous upload processing with document status polling
 - Pydantic schemas
 - TXT, DOCX and digital-native PDF parsing
-- LLM behind an adapter: OpenRouter (OpenAI-compatible) for generation/extraction/summaries, with a deterministic offline fallback
+- LLM behind an adapter: OpenRouter (cloud API) or Ollama (local, no key) for generation/extraction/summaries, with a deterministic offline fallback
 - Embeddings behind an adapter: local `sentence-transformers`, OpenRouter embeddings, or a hash fallback; vector search with embeddings precomputed at upload
 - Backend-enforced citation mapping (validates the LLM-chosen indexes)
 - PostgreSQL/pgvector vector-store runtime path with Alembic migration
@@ -84,6 +84,28 @@ BACKEND_PORT=18000 FRONTEND_PORT=18501 make up
 ```
 
 By default the app runs offline with no API key (hash embeddings + extractive answerer).
+
+### Run with local Ollama LLM (no API key)
+
+To run with a self-hosted LLM instead of a cloud API:
+
+```bash
+make up-ollama
+```
+
+This starts the full stack plus an Ollama container, pulls the `phi4-mini`
+model (~2.5 GB download on first run) and enables LLM-backed summaries,
+extraction and cited Q&A answers — all running locally on CPU with no API key.
+The model is cached in a Docker volume so subsequent starts are fast.
+
+To use a different model:
+
+```bash
+OLLAMA_MODEL=gemma3:4b make up-ollama
+```
+
+The adapter pattern means zero code changes between Ollama and OpenRouter — the
+same `LLMClient` interface speaks OpenAI-compatible protocol to either provider.
 
 Docker Compose runs the backend with `VECTOR_STORE_BACKEND=postgres`, backed by
 the `pgvector/pgvector:pg18` service, and forces `EMBEDDING_BACKEND=hash` so the
@@ -204,11 +226,18 @@ uv sync --extra local-embeddings   # installs sentence-transformers (CPU torch)
 EMBEDDING_BACKEND=local
 ```
 
-**Generative LLM answers/summaries/extraction (needs a key):**
+**Generative LLM answers/summaries/extraction (local, no key):**
+
+```bash
+make up-ollama                       # pulls phi4-mini (~2.5 GB) on first run
+```
+
+**Generative LLM answers/summaries/extraction (cloud API):**
 
 ```bash
 # in .env:
 ENABLE_LLM=true
+LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=sk-or-...        # https://openrouter.ai/keys
 LLM_MODEL=deepseek/deepseek-v4-flash
 PRICE_TABLE_AS_OF=2026-06-21
