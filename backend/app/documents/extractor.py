@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Literal, get_args, get_origin
 
 from pydantic import ValidationError
 
@@ -34,12 +35,44 @@ def extract_fields(text: str, llm_client: LLMClient | None = None) -> ExtractedF
     return _extract_with_heuristic(text)
 
 
+_FIELD_HINTS = {
+    "amount": "the total, without currency symbol or thousands separators",
+    "currency": "3-letter ISO code such as EUR",
+}
+
+
+def _describe_field(name: str, annotation: object) -> str:
+    if get_origin(annotation) is Literal:
+        return "one of " + ", ".join(json.dumps(value) for value in get_args(annotation))
+    args = get_args(annotation)
+    base = next((arg for arg in args if arg is not type(None)), annotation)
+    kind = {str: "string", float: "number", int: "integer"}.get(base, "value")
+    description = f"{kind} or null" if type(None) in args else kind
+    hint = _FIELD_HINTS.get(name)
+    return f"{description} ({hint})" if hint else description
+
+
+def extraction_request(text: str) -> str:
+    """User message for LLM extraction.
+
+    A compact key list plus an all-missing example, derived from
+    ``ExtractedFields``, replaces the full JSON Schema: small local models
+    (verified with phi4-mini) echo a JSON Schema back instead of filling it. The
+    example carries no sample values, so there is nothing to copy into the output.
+    """
+    keys = "\n".join(
+        f"- {name}: {_describe_field(name, field.annotation)}"
+        for name, field in ExtractedFields.model_fields.items()
+    )
+    empty = ExtractedFields().model_dump_json()
+    truncated = text[: get_settings().llm_max_input_chars]
+    return f"Keys:\n{keys}\n\nShape (every value missing):\n{empty}\n\nDocument text:\n{truncated}"
+
+
 def _extract_with_llm(text: str, llm_client: LLMClient) -> ExtractedFields:
     prompt = get_prompt("extract_fields")
-    schema = json.dumps(ExtractedFields.model_json_schema())
-    truncated = text[: get_settings().llm_max_input_chars]
     raw = llm_client.complete(
-        f"JSON schema:\n{schema}\n\nDocument text:\n{truncated}",
+        extraction_request(text),
         system=prompt.template,
         temperature=0.0,
         json_mode=True,
@@ -101,7 +134,8 @@ def _extract_amount(text: str) -> tuple[float | None, str | None]:
 
 def _value_after_label(text: str, labels: list[str]) -> str | None:
     for label in labels:
-        pattern = re.compile(rf"^{re.escape(label)}\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+        # "Label: value" lines, or "Label | value" rows from parsed DOCX tables.
+        pattern = re.compile(rf"^{re.escape(label)}\s*[:|]\s*(.+)$", re.IGNORECASE | re.MULTILINE)
         match = pattern.search(text)
         if match:
             return match.group(1).strip()[:160]

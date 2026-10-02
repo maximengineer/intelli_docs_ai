@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,8 +23,8 @@ class Settings(BaseSettings):
         "http://localhost:8501",
         "http://127.0.0.1:8501",
     ]
-    chunk_size_tokens: int = 800
-    chunk_overlap_tokens: int = 100
+    chunk_size_tokens: int = Field(default=800, ge=1)
+    chunk_overlap_tokens: int = Field(default=100, ge=0)
     embedding_dimension: int = 256
     retrieval_top_k: int = 5
     min_relevance_score: float = 0.08
@@ -50,10 +50,13 @@ class Settings(BaseSettings):
     upload_storage_dir: str = "data/uploads"
     support_check_enabled: bool = True
     support_check_min_citation_count: int = Field(default=1, ge=0)
-    # Minimum number of shared content tokens between the answer and its cited
-    # chunk text. This is the signal that lets the gate actually reject an answer
-    # that cites context it did not use (0 = grounding check disabled).
+    # Minimum number of shared content tokens (function words excluded) between
+    # the answer and its cited chunk text. This is the signal that lets the gate
+    # reject an answer that cites context it did not use (0 = disabled).
     support_check_min_overlap: int = Field(default=1, ge=0)
+    # Reject answers containing numbers that appear in neither the cited chunks
+    # nor the question (invented amounts, dates, counts).
+    support_check_numeric_grounding: bool = True
     streaming_enabled: bool = True
     celery_task_soft_time_limit_seconds: int = Field(default=50, ge=1)
     celery_task_time_limit_seconds: int = Field(default=60, ge=1)
@@ -74,7 +77,6 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434/v1"
     ollama_model: str = "phi4-mini"
     llm_model: str = "deepseek/deepseek-v4-flash"
-    llm_temperature: float = 0.0
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)
     llm_max_input_chars: int = 12_000
@@ -92,6 +94,14 @@ class Settings(BaseSettings):
     embedding_backend: Literal["auto", "local", "openrouter", "hash"] = "auto"
     embedding_model: str = "openai/text-embedding-3-small"
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    @model_validator(mode="after")
+    def _overlap_smaller_than_chunk(self) -> "Settings":
+        # An overlap >= the chunk size would make every window restart at the
+        # previous one, producing near-duplicate chunks.
+        if self.chunk_overlap_tokens >= self.chunk_size_tokens:
+            raise ValueError("CHUNK_OVERLAP_TOKENS must be smaller than CHUNK_SIZE_TOKENS.")
+        return self
 
     @property
     def max_upload_bytes(self) -> int:

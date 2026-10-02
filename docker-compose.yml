@@ -1,3 +1,26 @@
+# Runtime settings shared by the API and the Celery worker. Keeping one copy
+# prevents drift: both processes must embed, store and call providers the same
+# way, or chunks indexed by the worker would not match queries from the API.
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
+  ENABLE_LLM: ${ENABLE_LLM:-false}
+  LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-phi4-mini}
+  STRICT_PROVIDER_MODE: ${STRICT_PROVIDER_MODE:-false}
+  # Defaults suit a cloud provider; `make up-ollama` raises them because a CPU
+  # model can need minutes per call (see README, "Run with local Ollama LLM").
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+  LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+  CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: ${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-50}
+  CELERY_TASK_TIME_LIMIT_SECONDS: ${CELERY_TASK_TIME_LIMIT_SECONDS:-60}
+  EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-hash}
+  VECTOR_STORE_BACKEND: postgres
+  DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
+  UPLOAD_STORAGE_DIR: /app/data/uploads
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
+
 services:
   redis:
     image: redis:8.4-alpine
@@ -25,22 +48,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
-      ENABLE_LLM: ${ENABLE_LLM:-false}
-      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi4-mini}
-      STRICT_PROVIDER_MODE: ${STRICT_PROVIDER_MODE:-false}
-      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-hash}
+      <<: *app-environment
       REQUIRE_DATABASE_READY: "true"
-      VECTOR_STORE_BACKEND: postgres
-      DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
-      UPLOAD_STORAGE_DIR: /app/data/uploads
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes:
       - uploads_data:/app/data/uploads
     ports:
@@ -65,20 +78,11 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://intellidocs:intellidocs@postgres:5432/intellidocs
-      ENABLE_LLM: ${ENABLE_LLM:-false}
-      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi4-mini}
-      EMBEDDING_BACKEND: hash
-      VECTOR_STORE_BACKEND: postgres
-      DOCUMENT_PROCESSING_BACKEND: ${DOCUMENT_PROCESSING_BACKEND:-thread}
-      UPLOAD_STORAGE_DIR: /app/data/uploads
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      <<: *app-environment
     volumes:
       - uploads_data:/app/data/uploads
     command: celery -A worker.worker.celery_app worker --loglevel=INFO
@@ -89,7 +93,7 @@ services:
         condition: service_healthy
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.30.10
     profiles:
       - ollama
     volumes:
@@ -109,6 +113,8 @@ services:
       INTELLIDOCS_API_URL: http://backend:8000
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
       MAX_DOCUMENTS: ${MAX_DOCUMENTS:-10}
+      QA_TIMEOUT_SECONDS: ${QA_TIMEOUT_SECONDS:-60}
+      STATUS_POLL_SECONDS: ${STATUS_POLL_SECONDS:-120}
     ports:
       - "${FRONTEND_PORT:-9999}:8501"
     depends_on:
@@ -121,6 +127,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: test
     environment:
       ENABLE_LLM: "false"
       EMBEDDING_BACKEND: hash
@@ -138,6 +145,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: runtime
     environment:
       INTELLIDOCS_API_URL: http://backend:8000
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-hash}

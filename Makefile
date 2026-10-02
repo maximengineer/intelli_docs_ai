@@ -56,15 +56,23 @@ up-alt:
 
 OLLAMA_MODEL ?= phi4-mini
 
+# CPU inference is slow (measured 2026-10-02 with phi4-mini on a 12-core CPU:
+# ~45-60 s per extraction/Q&A call, ~255 s for a summary at the 12k-char input
+# cap), so Ollama mode raises the provider timeout, disables retries (retrying a
+# timeout only triples the wait) and widens Celery and UI limits to match.
+OLLAMA_ENV = ENABLE_LLM=true LLM_PROVIDER=ollama OLLAMA_MODEL=$(OLLAMA_MODEL) \
+	LLM_TIMEOUT_SECONDS=300 LLM_MAX_RETRIES=0 \
+	CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=330 CELERY_TASK_TIME_LIMIT_SECONDS=360 \
+	QA_TIMEOUT_SECONDS=360 STATUS_POLL_SECONDS=900 \
+	BACKEND_PORT=$(BACKEND_PORT) FRONTEND_PORT=$(FRONTEND_PORT)
+
 up-ollama:
-	ENABLE_LLM=true LLM_PROVIDER=ollama OLLAMA_MODEL=$(OLLAMA_MODEL) \
-		BACKEND_PORT=$(BACKEND_PORT) FRONTEND_PORT=$(FRONTEND_PORT) \
-		docker compose --profile ollama up -d --build backend worker frontend ollama
+	@echo "Starting Ollama and pulling $(OLLAMA_MODEL) (first run downloads ~2.5 GB)..."
+	$(OLLAMA_ENV) docker compose --profile ollama up -d --wait ollama
+	$(OLLAMA_ENV) docker compose --profile ollama exec ollama ollama pull $(OLLAMA_MODEL)
+	$(OLLAMA_ENV) docker compose --profile ollama up -d --build backend worker frontend
 	@echo ""
-	@echo "Waiting for Ollama to be ready..."
-	@docker compose --profile ollama exec ollama ollama pull $(OLLAMA_MODEL)
-	@echo ""
-	@echo "Ollama ready with model $(OLLAMA_MODEL)."
+	@echo "Ollama ready with model $(OLLAMA_MODEL). Expect roughly a minute per LLM call on CPU."
 	@echo "  API: http://localhost:$(BACKEND_PORT)/health"
 	@echo "  UI:  http://localhost:$(FRONTEND_PORT)"
 
@@ -72,7 +80,7 @@ ollama-pull:
 	docker compose --profile ollama exec ollama ollama pull $(OLLAMA_MODEL)
 
 down:
-	docker compose down
+	docker compose --profile ollama down
 
 restart: down up
 

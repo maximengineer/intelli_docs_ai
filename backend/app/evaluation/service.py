@@ -7,6 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -16,7 +17,12 @@ from app.documents.service import DocumentService
 from app.evaluation.datasets import load_jsonl
 from app.evaluation.extraction_eval import extraction_field_accuracy
 from app.evaluation.report import average
-from app.evaluation.retrieval_eval import citation_coverage, document_hit_at_k
+from app.evaluation.retrieval_eval import (
+    citation_coverage,
+    document_hit_at_k,
+    fact_recall,
+    first_citation_hit,
+)
 from app.rag.embeddings import HashEmbeddingModel
 from app.rag.retriever import Retriever
 from app.rag.schemas import QARequest
@@ -105,9 +111,10 @@ def _run_evaluation_loop(
         filename_to_doc_id[path.name] = document.document_id
 
     latencies: list[float] = []
-    answer_count = 0
     cited_answer_count = 0
     document_hit_scores: list[float] = []
+    fact_recall_scores: list[float] = []
+    first_citation_scores: list[float] = []
     unsupported_total = 0
     unsupported_rejected = 0
     support_checked = 0
@@ -132,10 +139,18 @@ def _run_evaluation_loop(
             support_checked += 1
             if response.metrics.support_check_passed:
                 support_passed += 1
-        if response.status == "success":
-            answer_count += 1
-            if response.sources:
-                cited_answer_count += 1
+        answered = response.status == "success" and bool(response.sources)
+        if answered:
+            cited_answer_count += 1
+        expected_facts = row.get("expected_facts", [])
+        if expected_facts:
+            fact_recall_scores.append(
+                fact_recall(response.answer, expected_facts) if answered else 0.0
+            )
+        if expected_document_ids:
+            first_citation_scores.append(
+                first_citation_hit(response.sources, expected_document_ids) if answered else 0.0
+            )
 
     for row in negative_question_rows:
         unsupported_total += 1
@@ -167,7 +182,9 @@ def _run_evaluation_loop(
         "extraction_rows_scored": len(extraction_scores),
         "missing_expected_filenames": sorted(missing_expected_filenames),
         "document_hit_at_5": average(document_hit_scores),
-        "citation_coverage": citation_coverage(answer_count, cited_answer_count),
+        "citation_coverage": citation_coverage(len(question_rows), cited_answer_count),
+        "answer_fact_recall": average(fact_recall_scores),
+        "first_citation_document_accuracy": average(first_citation_scores),
         "unsupported_answer_rejection_rate": (
             unsupported_rejected / unsupported_total if unsupported_total else 0.0
         ),
@@ -318,8 +335,7 @@ def _ensure_durable_schema(database_url: str) -> None:
     )
 
 
-_evaluation_service = EvaluationService()
-
-
+@lru_cache(maxsize=1)
 def get_evaluation_service() -> EvaluationService:
-    return _evaluation_service
+    """Process-wide evaluation service, built on first use rather than at import."""
+    return EvaluationService()

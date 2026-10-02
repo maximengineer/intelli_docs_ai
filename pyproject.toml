@@ -13,8 +13,6 @@ dependencies = [
   "pdfplumber==0.11.9",
   "PyYAML==6.0.3",
   "httpx==0.28.1",
-  "streamlit==1.58.0",
-  "requests==2.34.2",
   "openai==2.41.0",
   "SQLAlchemy==2.0.50",
   "psycopg[binary]==3.3.4",
@@ -36,6 +34,15 @@ dev = [
   "pytest==9.0.3",
   "ruff==0.15.16",
 ]
+# Streamlit UI only; kept out of the backend/worker image.
+frontend = [
+  "streamlit==1.58.0",
+  "requests==2.34.2",
+]
+
+[tool.uv]
+# Local `uv sync` installs everything; Docker images pick only what they need.
+default-groups = ["dev", "frontend"]
 
 # Use the CPU-only torch build on Linux so the optional install stays lean and
 # needs no GPU/CUDA. macOS/Windows resolve torch from PyPI as usual.

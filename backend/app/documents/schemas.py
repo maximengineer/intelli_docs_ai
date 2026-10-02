@@ -1,6 +1,9 @@
-from typing import Literal
+import logging
+from typing import Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class ParsedPage(BaseModel):
@@ -28,6 +31,27 @@ class ExtractedFields(BaseModel):
     effective_date: str | None = None
     renewal_terms: str | None = None
     risk_level: Literal["low", "medium", "high", "unknown"] = "unknown"
+
+    @field_validator("document_type", "risk_level", mode="before")
+    @classmethod
+    def _normalise_enum(cls, value: object, info: ValidationInfo) -> object:
+        """Lower-case enum values and map anything else to "unknown".
+
+        LLMs (notably small local models) return labels such as "Invoice" or
+        "SERVICE AGREEMENT". Rejecting the whole object would discard every other
+        correctly extracted field, so an out-of-set label becomes "unknown"
+        (logged) instead of guessing a synonym.
+        """
+        if value is None:
+            return "unknown"
+        if not isinstance(value, str):
+            return value
+        allowed = get_args(cls.model_fields[info.field_name].annotation)
+        normalised = value.strip().lower()
+        if normalised in allowed:
+            return normalised
+        logger.warning("extracted_enum_out_of_set field=%s value=%r", info.field_name, value)
+        return "unknown"
 
 
 class DocumentChunk(BaseModel):

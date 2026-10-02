@@ -27,6 +27,7 @@ DEFAULT_STEPS: tuple[ProcessingStepName, ...] = (
     "chunking",
 )
 DEFAULT_BRANCHES: tuple[BranchStatusName, ...] = ("embedding", "extracting", "summarising")
+TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed"})
 
 
 class DocumentRepository(Protocol):
@@ -91,6 +92,10 @@ class DocumentRepository(Protocol):
     def fail_running_work(self, document_id: str, error: str) -> None: ...
 
     def delete_document(self, document_id: str) -> None: ...
+
+    def list_unfinished_documents(self) -> list[tuple[str, str | None]]:
+        """Return ``(document_id, processing_backend)`` for non-terminal documents."""
+        ...
 
 
 class InMemoryDocumentRepository:
@@ -282,6 +287,14 @@ class InMemoryDocumentRepository:
             self._ai_texts.pop(document_id, None)
             self._branch_results.pop(document_id, None)
             self._storage_keys.pop(document_id, None)
+
+    def list_unfinished_documents(self) -> list[tuple[str, str | None]]:
+        with self._lock:
+            return [
+                (status.document_id, status.processing_backend)
+                for status in self._statuses.values()
+                if status.status not in TERMINAL_STATUSES
+            ]
 
 
 class PostgresDocumentRepository:
@@ -610,8 +623,8 @@ class PostgresDocumentRepository:
         with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from document_chunks where document_id = %s", (document_id,))
-                for chunk in chunks:
-                    cursor.execute(
+                if chunks:
+                    cursor.executemany(
                         """
                         insert into document_chunks (
                             chunk_id,
@@ -631,15 +644,18 @@ class PostgresDocumentRepository:
                             section_title = excluded.section_title,
                             chunk_index = excluded.chunk_index
                         """,
-                        (
-                            chunk.chunk_id,
-                            chunk.document_id,
-                            chunk.filename,
-                            chunk.text,
-                            chunk.page_number,
-                            chunk.section_title,
-                            chunk.chunk_index,
-                        ),
+                        [
+                            (
+                                chunk.chunk_id,
+                                chunk.document_id,
+                                chunk.filename,
+                                chunk.text,
+                                chunk.page_number,
+                                chunk.section_title,
+                                chunk.chunk_index,
+                            )
+                            for chunk in chunks
+                        ],
                     )
                 cursor.execute(
                     """
@@ -767,6 +783,21 @@ class PostgresDocumentRepository:
             with connection.cursor() as cursor:
                 cursor.execute("delete from documents where document_id = %s", (document_id,))
             connection.commit()
+
+    def list_unfinished_documents(self) -> list[tuple[str, str | None]]:
+        self._ensure_schema()
+        with database_connection(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select document_id, processing_backend
+                    from documents
+                    where status <> all(%s)
+                    """,
+                    (list(TERMINAL_STATUSES),),
+                )
+                rows = cursor.fetchall()
+        return [(row[0], row[1]) for row in rows]
 
     @staticmethod
     def _upsert_step(

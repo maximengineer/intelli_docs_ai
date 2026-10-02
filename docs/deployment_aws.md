@@ -34,8 +34,11 @@ is enterprise-ready.
   configuration outside the application stack.
 - Treat cost estimates as application logs, not billing-grade accounting.
   `token_usage_source=provider` means provider usage metadata was available;
-  `token_usage_source=estimate` means the app used a local word-count estimate.
-  Offline/local heuristic runs report API cost as `$0.00`; local compute cost is
-  not estimated. Provider calls report `estimated_cost_usd=null` and
+  `token_usage_source=estimate` means the app used a local word-count estimate;
+  `token_usage_source=none` (with `model_name=null` and zero tokens) means the
+  question was refused by the relevance gate before any answerer ran.
+  Answers produced without a provider call (offline answerer, fallback after a
+  provider failure, relevance-gate refusal) and local Ollama answers report API
+  cost as `$0.00`; local compute cost is not estimated. Provider calls report `estimated_cost_usd=null` and
   `cost_estimate_available=false` when token prices have not been configured;
   zero must not be interpreted as a free paid-provider call.

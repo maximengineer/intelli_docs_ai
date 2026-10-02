@@ -136,28 +136,28 @@ class PgVectorStore:
 
         with database_connection(self.database_url) as connection:
             with connection.cursor() as cursor:
-                for chunk, vector in rows:
-                    cursor.execute(
-                        """
-                        insert into document_chunks (
-                            chunk_id,
-                            document_id,
-                            filename,
-                            text,
-                            page_number,
-                            section_title,
-                            chunk_index,
-                            embedding
-                        )
-                        values (%s, %s, %s, %s, %s, %s, %s, %s::vector)
-                        on conflict (chunk_id) do update set
-                            filename = excluded.filename,
-                            text = excluded.text,
-                            page_number = excluded.page_number,
-                            section_title = excluded.section_title,
-                            chunk_index = excluded.chunk_index,
-                            embedding = excluded.embedding
-                        """,
+                cursor.executemany(
+                    """
+                    insert into document_chunks (
+                        chunk_id,
+                        document_id,
+                        filename,
+                        text,
+                        page_number,
+                        section_title,
+                        chunk_index,
+                        embedding
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s::vector)
+                    on conflict (chunk_id) do update set
+                        filename = excluded.filename,
+                        text = excluded.text,
+                        page_number = excluded.page_number,
+                        section_title = excluded.section_title,
+                        chunk_index = excluded.chunk_index,
+                        embedding = excluded.embedding
+                    """,
+                    [
                         (
                             chunk.chunk_id,
                             chunk.document_id,
@@ -167,8 +167,10 @@ class PgVectorStore:
                             chunk.section_title,
                             chunk.chunk_index,
                             vector,
-                        ),
-                    )
+                        )
+                        for chunk, vector in rows
+                    ],
+                )
             connection.commit()
 
     def remove(self, document_id: str) -> None:
@@ -191,10 +193,13 @@ class PgVectorStore:
         query_embedding = self.embedding_model.embed(query)
         self._validate_dimension(query_embedding)
         query_vector = _vector_literal(query_embedding)
-        where = "where embedding is not null"
+        # Only completed documents are evidence: chunks of documents that are
+        # still processing or failed (e.g. a Celery embedding branch finished
+        # before a sibling branch failed) must never be retrieved.
+        where = "where chunks.embedding is not null and docs.status = 'completed'"
         params: list[object] = [query_vector]
         if document_ids:
-            where += " and document_id = any(%s)"
+            where += " and chunks.document_id = any(%s)"
             params.append(document_ids)
         params.extend([query_vector, top_k])
 
@@ -203,16 +208,17 @@ class PgVectorStore:
                 cursor.execute(
                     f"""
                     select
-                        document_id,
-                        filename,
-                        page_number,
-                        section_title,
-                        chunk_id,
-                        text,
-                        1 - (embedding <=> %s::vector) as score
-                    from document_chunks
+                        chunks.document_id,
+                        chunks.filename,
+                        chunks.page_number,
+                        chunks.section_title,
+                        chunks.chunk_id,
+                        chunks.text,
+                        1 - (chunks.embedding <=> %s::vector) as score
+                    from document_chunks chunks
+                    join documents docs on docs.document_id = chunks.document_id
                     {where}
-                    order by embedding <=> %s::vector
+                    order by chunks.embedding <=> %s::vector
                     limit %s
                     """,
                     params,

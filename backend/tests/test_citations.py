@@ -88,3 +88,13 @@ def test_any_out_of_range_placeholder_falls_back_even_with_valid_citation() -> N
     assert supported is False
     assert answer == FALLBACK_ANSWER
     assert sources == []
+
+
+def test_closing_cite_tags_are_removed_from_the_answer() -> None:
+    answer, sources, supported = map_citations(
+        'Renewal is automatic <cite index="0">each year</cite> .', [_chunk()]
+    )
+
+    assert supported is True
+    assert answer == "Renewal is automatic each year."
+    assert len(sources) == 1

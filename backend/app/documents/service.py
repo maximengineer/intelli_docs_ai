@@ -6,6 +6,7 @@ import logging
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 
@@ -38,6 +39,9 @@ from app.storage.upload_store import LocalUploadStore, get_upload_store
 
 logger = logging.getLogger(__name__)
 _DEFAULT_LLM_CLIENT = object()
+INTERRUPTED_PROCESSING_ERROR = (
+    "Processing was interrupted by a backend restart. Upload the document again to retry."
+)
 
 
 class DocumentSubmissionError(RuntimeError):
@@ -466,6 +470,35 @@ class DocumentService:
         self._fail_running_step(document_id, error)
         self._set_document_status(document_id, "failed", error=error)
 
+    def recover_interrupted_thread_documents(self) -> list[str]:
+        """Fail thread-processed documents left unfinished by a previous API process.
+
+        Thread tasks run inside the API process, so after a restart nothing will
+        ever finish them: they would stay non-terminal forever, block deletion
+        (409) and make re-uploads join a task that no longer exists. Marking them
+        failed lets the user remove them or retry by uploading again.
+
+        Call this once at API startup only. The Celery worker container also
+        builds a ``DocumentService`` and must not fail documents the API is still
+        processing. Celery documents are skipped because the broker redelivers
+        their tasks. Assumes a single API process (the Docker/uvicorn default).
+        """
+        recovered: list[str] = []
+        for document_id, processing_backend in self._repository.list_unfinished_documents():
+            if processing_backend == "celery":
+                continue
+            self._repository.save_chunks(document_id, [])
+            self._remove_vectors_safely(document_id)
+            self.mark_document_failed(document_id, INTERRUPTED_PROCESSING_ERROR)
+            recovered.append(document_id)
+        if recovered:
+            logger.warning(
+                "interrupted_thread_documents_failed count=%s document_ids=%s",
+                len(recovered),
+                ",".join(recovered),
+            )
+        return recovered
+
     def _require_ai_text(self, document_id: str) -> str:
         ai_text = self._repository.get_ai_text(document_id)
         if not ai_text:
@@ -576,30 +609,20 @@ class DocumentService:
 
 
 def _replace_parsed_text(parsed: ParsedDocument, text: str) -> ParsedDocument:
-    # Phase 2 keeps page metadata while using privacy-processed text for AI and embeddings.
+    # Keeps page metadata while using privacy-processed text for AI and embeddings.
+    # The parser derives section titles from raw text, so redact them too: they
+    # flow into chunk rows, citations and the UI.
     pages = [
         ParsedPage(
             page_number=page.page_number,
             text=apply_basic_privacy(page.text).ai_text,
-            section_title=page.section_title,
+            section_title=(
+                apply_basic_privacy(page.section_title).ai_text if page.section_title else None
+            ),
         )
         for page in parsed.pages
     ]
     return parsed.model_copy(update={"text": text, "pages": pages})
-
-
-def _pending_document_from_status(status: DocumentStatusResponse) -> DocumentResponse:
-    return DocumentResponse(
-        document_id=status.document_id,
-        filename=status.filename,
-        status=status.status,
-        summary="",
-        document_type="unknown",
-        extracted_fields=ExtractedFields(),
-        chunk_count=0,
-        needs_review=status.needs_review,
-        error=status.error,
-    )
 
 
 def _build_vector_store() -> VectorStore:
@@ -611,9 +634,14 @@ def _build_vector_store() -> VectorStore:
     return InMemoryVectorStore()
 
 
-_document_service = DocumentService()
-atexit.register(_document_service.shutdown)
-
-
+@lru_cache(maxsize=1)
 def get_document_service() -> DocumentService:
-    return _document_service
+    """Process-wide service, built on first use rather than at import.
+
+    Importing the module therefore has no side effects: settings, the vector
+    store and the repository are created when the API lifespan, a worker task or
+    a script first asks for the service.
+    """
+    service = DocumentService()
+    atexit.register(service.shutdown)
+    return service

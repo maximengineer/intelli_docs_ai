@@ -66,3 +66,26 @@ def test_chunker_preserves_heading_as_section_title() -> None:
 
     assert [chunk.section_title for chunk in chunks] == ["SUMMARY", "DETAILS"]
     assert [chunk.page_number for chunk in chunks] == [3, 3]
+
+
+def test_chunker_keeps_line_breaks_inside_chunks() -> None:
+    text = "INVOICE\nVendor: Acme\nTotal amount: EUR 1,000.00\nDue date: 2026-01-01"
+    parsed = ParsedDocument(
+        document_id="doc_lines",
+        filename="lines.txt",
+        text=text,
+        pages=[ParsedPage(page_number=1, text=text)],
+    )
+
+    chunks = chunk_document(parsed)
+
+    assert [chunk.text for chunk in chunks] == [text]
+
+
+def test_settings_reject_overlap_not_smaller_than_chunk_size() -> None:
+    import pytest
+    from app.core.settings import Settings
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="CHUNK_OVERLAP_TOKENS"):
+        Settings(chunk_size_tokens=100, chunk_overlap_tokens=100)

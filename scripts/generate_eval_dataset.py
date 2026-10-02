@@ -33,8 +33,9 @@ def main() -> None:
     client = get_llm_client()
     if client is None:
         raise SystemExit(
-            "No LLM client configured. Set ENABLE_LLM=true and OPENROUTER_API_KEY, "
-            "then rerun this candidate generator."
+            "No LLM client configured. Set ENABLE_LLM=true plus either "
+            "OPENROUTER_API_KEY (LLM_PROVIDER=openrouter) or a reachable Ollama server "
+            "(LLM_PROVIDER=ollama, OLLAMA_BASE_URL), then rerun this candidate generator."
         )
 
     sample_paths = sorted(args.samples_dir.glob("*.txt"))

@@ -6,6 +6,504 @@ local demo measurements on the synthetic dataset, not benchmark claims.
 
 ---
 
+## 2026-10-02 — Pre-commit review of the change set
+
+A final pass over the full uncommitted change set before committing.
+
+- `.env.example` now documents `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`,
+  `QA_TIMEOUT_SECONDS` and `STATUS_POLL_SECONDS`. Ollama mode depends on all
+  four, and Compose already interpolates them.
+- `worker/worker.py`: the Celery app-wide limits were hardcoded to 240/300 s.
+  Every document task overrides them from settings, so they applied only to the
+  chord errback and misled readers. They now come from the same settings.
+- `QAService.answer`: the three refusal paths (relevance gate, declined or
+  uncited answer, support check) each repeated a 14-line metrics block. They now
+  share one helper, and the unused `_insufficient` method is gone. No behaviour
+  change.
+- The README intro now names numeric grounding among the refusal checks.
+- `docs/code_review_findings.md` notes that the guide and plan it cites are
+  gitignored working documents.
+
+Checked with no change needed: no stale references to removed names, `uv lock
+--check` is consistent, and every test file passes when run on its own (the
+services are now built lazily, so hidden ordering dependencies would show up
+there).
+
+**Verification.** `uv run pytest`: 147 passed, 5 skipped; `make test` 145 passed, 6 skipped; Celery and Alembic integration tests, `make eval` (snapshot unchanged) and `make config-all` pass. Ruff clean.
+
+---
+
+## 2026-10-02 — Relevance-gate refusals name no model
+
+When retrieval found nothing relevant enough, `QAService` refused before any
+answerer ran, yet the metrics still said `model_name: "offline-heuristic"` and
+carried word-count token estimates for a call that never happened. The UI showed
+"model: offline-heuristic" under the refusal.
+
+- `QAMetrics.model_name` is now `str | None`. Relevance-gate refusals report
+  `model_name: null`, zero tokens with the new `token_usage_source: "none"`, and
+  `$0.00`. A refusal from the offline answerer itself still reports
+  `offline-heuristic`, because that answerer did run.
+- The Streamlit metrics caption omits the model when there is none.
+- The implementation guide's B.7 example now matches the real response,
+  including `support_check_reason: "relevance_below_threshold"`, which the old
+  example showed as `null`.
+
+**Verification.** A unit test covers the metrics, and a headless Streamlit test
+checks the caption has no model for such a refusal. `uv run pytest`: 146 passed,
+5 skipped. Ruff clean.
+
+---
+
+## 2026-10-02 — Self-review of the review fixes
+
+A critical pass over the whole uncommitted change set found five defects in the
+fixes themselves. Each is fixed and tested; details are in the addendum of
+`docs/code_review_findings.md`.
+
+- **Startup recovery could block startup.** The H-3 lifespan hook queried the
+  database unguarded, so a Postgres outage stopped the API from starting instead
+  of letting `/ready` report it. Recovery is now best effort and logs
+  `interrupted_document_recovery_failed`.
+- **Dotted dates were misread by numeric grounding.** `12.05.2026` was parsed as
+  `12.05` and `2026`, which falsely rejected an answer saying `12 May 2026`.
+  Dotted dates are now split like ISO and slashed dates.
+- **The answerer skipped all-caps value lines.** The heading rule dropped lines
+  such as `TOTAL AMOUNT DUE: EUR 12,450.00`. Lines containing a digit are no
+  longer treated as headings by the answerer.
+- Re-indented the pgvector insert SQL left misaligned by the `executemany`
+  change, and replaced two `object` type hints with the real types.
+- `docs/limitations.md` now names the support gate's remaining trade-offs:
+  numbers repeated from the question are accepted, and dates are compared as
+  plain numbers.
+
+**Verification.** `uv run pytest`: 145 passed, 5 skipped (three new tests).
+Ruff clean. The offline evaluation snapshot is unchanged.
+
+---
+
+## 2026-10-02 — Low-severity cleanups (L-1 … L-13) and final review gate
+
+**Code.**
+
+- L-1: removed dead code (`LocalStubLLMClient`, a duplicate
+  `_pending_document_from_status`, `HashEmbeddingModel.version`, the unused
+  `llm_temperature` setting; every call pins `temperature=0.0`).
+- L-2 and L-13: `OpenRouterLLMClient` became `OpenAICompatibleLLMClient` with one
+  construction path. OpenRouter attribution headers go only to OpenRouter.
+  Metrics label answers with the client's `model_name`.
+- L-3: `worker/worker.py` builds the Celery app directly (the import fallback
+  was unreachable because `worker/tasks.py` imports Celery anyway).
+- L-4: the document, Q&A and evaluation service accessors build lazily instead
+  of at import. The API lifespan still builds them at startup. Callers and test
+  monkeypatches were unchanged.
+- L-5: `executemany` for chunk inserts and embedding upserts.
+- L-6: Docker images install from `uv.lock` (`backend/requirements.txt`
+  removed). The backend has `runtime`/`test` targets, Streamlit/requests moved
+  to a `frontend` dependency group (`default-groups` keeps local `uv sync`
+  unchanged), and images are pinned to Python `3.13.14-slim`, uv `0.11.14` and
+  `ollama/ollama:0.30.10` (same digest as the cached `latest`, so no new
+  download). The backend runtime image no longer contains Streamlit or pytest;
+  the frontend image contains no backend packages. This deviates from the
+  CLAUDE.md starter layout, which lists `backend/requirements.txt`: one lock
+  file is the single source of truth.
+- L-9 to L-11 (UI): the generated CSS class is replaced by
+  `st.container(gap="xsmall")`, and the deprecated `use_container_width` by
+  `width="stretch"`. Four clickable sample questions (one deliberately
+  unanswerable) were added. "Extraction confidence" is now "Field completeness"
+  with a tooltip that says it is deterministic.
+- L-12: settings reject `CHUNK_OVERLAP_TOKENS >= CHUNK_SIZE_TOKENS`, and the
+  eval-candidate generator's error mentions Ollama.
+- New `backend/tests/test_frontend_smoke.py`: renders the Streamlit app
+  headlessly (`AppTest`, stubbed backend) and checks the metric label and the
+  sample-question flow. It skips in the backend-only Docker test image.
+
+**Final gate (2026-10-02).** `uv run pytest`: **142 passed, 5 skipped**.
+`make test`: **141 passed, 6 skipped**. `make eval`: identical to the local
+snapshot. `make alembic-integration-test`: 1 passed.
+`make celery-integration-test`: 2 + 1 passed (this also exercises the
+`executemany` inserts, completed-only search and lazily built worker services
+on real Postgres). `ruff check` and `ruff format --check`: clean.
+`make config-all`: passes. All temporary Compose projects and the Ollama
+benchmark container were removed.
+
+---
+
+## 2026-10-02 — M-13: output contracts hardened for small local models
+
+**Problem (measured with phi4-mini during M-8).** Extraction sent the full JSON
+Schema; on a long input the model echoed the schema back, and a single
+out-of-set label (`"SERVICE AGREEMENT"` for `document_type`) discarded every
+extracted field. In Q&A the model cited with `[1]`. A rerun after the first
+fixes exposed two more contract bugs: a stray `</cite>` leaking into the answer
+text, and a refusal written in prose with a citation attached being returned
+as `success` with sources, which breaks the insufficient-information rule.
+
+**Fix.**
+
+- `extractor.extraction_request()`: a key list derived from `ExtractedFields`
+  plus an all-missing JSON example. No schema is sent, and there are no sample
+  values to copy. `prompts/extract_fields.yaml` v0.2.0.
+- `ExtractedFields`: `document_type`/`risk_level` are lower-cased; out-of-set
+  labels become `"unknown"` with an `extracted_enum_out_of_set` log line.
+- `prompts/answer_question.yaml` v0.2.0: one inline citation example, and `[1]`
+  and footnote styles are forbidden.
+- `citations.map_citations`: strips closing `</cite>` tags and the space they
+  leave before punctuation.
+- `QAService`: any draft containing the fallback sentence is
+  `insufficient_information` with empty sources (`answer_declined`, which also
+  closes L-7). An LLM draft that breaks the citation contract logs
+  `llm_citation_contract_failed`.
+
+**phi4-mini rerun (standalone Ollama container on the cached volume, removed
+afterwards; 12-core CPU).** Small extractions: about 22 s each (previously
+about 46 s, since the prompt is much shorter), with no schema echo. Field
+accuracy: Acme 1.0, Remote Work 1.0, Zenith 0.75, Northwind 0.33. The 12k mixed
+input returned a well-shaped object whose only error was the enum, now
+normalised. Q&A: q_002 and q_006 were answered correctly with the right first
+citation. q_001 was rejected by the H-1 numeric grounding check (the answer
+invented "20000"). nq_004 was a cited prose refusal, now returned as
+`insufficient_information`. These are local measurements, not benchmarks, and
+no LLM numbers are committed to the evaluation snapshot.
+
+**Verification.** New tests: compact extraction request (no schema markers),
+enum normalisation, closing-tag stripping, cited refusal → insufficient,
+declined vs broken-contract reasons and logging. `uv run pytest`: **138 passed,
+5 skipped**. Ruff clean. Offline eval unchanged.
+
+---
+
+## 2026-10-02 — M-11 investigated: filtered pgvector search is exact at workspace scale
+
+**Concern.** HNSW applies `WHERE` filters after the index scan
+(`hnsw.ef_search=40`), so a `document_ids`-filtered query might return fewer
+chunks than exist.
+
+**Investigation.** Isolated Compose project (`intellidocs-m11-*`, torn down):
+3,000 keyword-dense bulk chunks plus one target chunk, `ANALYZE`d. A filtered
+search for the target returned it with its exact cosine score (0.158). The
+`EXPLAIN` plan uses `ix_document_chunks_document_id` (btree) with an exact sort
+and no HNSW scan, because the filter is selective. pgvector version: 0.8.2.
+
+**Decision.** Won't fix. The UI scopes Q&A to at most 10 documents, and adding
+`hnsw.iterative_scan` without a reproducing case would be speculative. It is
+noted in the tracker as the remedy if a broad filter ever loses results.
+
+---
+
+## 2026-10-02 — M-10: DOCX tables are parsed
+
+**Problem.** `_parse_docx` read only `doc.paragraphs`, so table content (where
+DOCX invoices usually keep vendor, totals and dates) never reached extraction,
+retrieval or Q&A.
+
+**Fix.** Walk `doc.iter_inner_content()` in document order and emit each table
+row as a `cell | cell | cell` line, deduplicating merged cells (python-docx
+repeats them). The heuristic extractor's label matcher also accepts
+`Label | value`, so offline extraction can read two-column tables. Amounts split
+across cells (`EUR | 12,450.00`) are still left to the LLM path.
+
+**Verification.** Tests for ordered table parsing with a merged cell and for
+table-row label extraction. `uv run pytest`: **133 passed, 5 skipped**. Ruff
+clean. Offline eval unchanged (the sample corpus is TXT).
+
+---
+
+## 2026-10-02 — M-8: Ollama mode sized to measured CPU latency
+
+**Measured first.** A standalone Ollama container on the existing
+`intelli_docs_ai_ollama_data` volume (port 11435, removed afterwards). Timings
+through the app's own LLM client with phi4-mini on a 12-core CPU: model load
+11.4 s, small-invoice extraction 45.7 s (476/89 tokens), five-sample-document
+Q&A 55.2 s (560/82), summary at the 12k-char cap 255.2 s (2,539/247).
+
+**Problem.** The default `LLM_TIMEOUT_SECONDS=30` with 2 retries is shorter
+than even the smallest CPU call. Every Ollama extraction and summary timed out
+three times (about 90 s wasted) and silently fell back to the heuristics. The
+UI's 60 s Q&A timeout and 2-minute status polling were also too short, Celery's
+60 s hard limit would kill branches, and `make up-ollama` started the backend
+before the model pull.
+
+**Fix.**
+
+- `docker-compose.yml`: the shared env exposes `LLM_TIMEOUT_SECONDS`,
+  `LLM_MAX_RETRIES` and the Celery soft/hard limits (defaults unchanged). The
+  frontend gets `QA_TIMEOUT_SECONDS` and `STATUS_POLL_SECONDS`.
+- `Makefile`: `up-ollama` starts Ollama, pulls the model, then starts the app
+  with `LLM_TIMEOUT_SECONDS=300`, `LLM_MAX_RETRIES=0`, Celery 330/360 s, UI
+  360 s / 900 s. `make down` includes the `ollama` profile.
+- README: measured timings and the small-model quality caveats.
+
+**Also observed (new M-13).** phi4-mini echoed the JSON schema on a long input
+and cited with `[1]` instead of citation tags (the backend refused that answer
+as designed).
+
+**Verification.** `make -n up-ollama`, `docker compose --profile ollama config`
+(backend/worker 300 s / 0 retries / 330-360 s; frontend 360/900) and
+`make config-all`. Default stack unchanged (30 s / 2 / 60 s).
+`uv run pytest`: **131 passed, 5 skipped**. No full end-to-end `make up-ollama`
+UI run was done.
+
+---
+
+## 2026-10-02 — M-7: Q&A metrics name the model that actually answered
+
+**Problem.** `QAService._metrics` labelled every answer with the configured LLM
+whenever a client existed. When the provider failed and the offline answerer
+took over, metrics still named the LLM and priced word-count estimates as
+provider cost. With prices configured, relevance-gate refusals (no generation
+at all) also reported a non-zero "estimated cost". Local Ollama answers reported
+`estimated_cost_usd=null` / unavailable, although the plan specifies a known
+`$0.00` API cost for local models.
+
+**Fix.** `generate_answer()` returns `GeneratedAnswer(text, used_llm)`
+(`generate_answer_with_placeholders` remains a text-only wrapper). Metrics use
+the LLM model name, provider usage and price-based cost only when `used_llm`.
+Everything else is `offline-heuristic` with `$0.00`. `LLM_PROVIDER=ollama`
+reports `$0.00` with `cost_estimate_available=true`. Guide K, G.6 and
+`docs/deployment_aws.md` were updated. The live smoke check (fails on
+`offline-heuristic` for a successful answer) is now strictly more accurate.
+
+**Verification.** New tests: provider failure followed by heuristic fallback,
+relevance-gate refusal with prices configured, Ollama zero cost.
+`uv run pytest`: **131 passed, 5 skipped**. Ruff clean.
+
+---
+
+## 2026-10-02 — M-9: numeric dates no longer redacted as phone numbers
+
+**Problem.** Only ISO dates were protected before phone redaction, so
+`Signed on 05.06.2026` became `Signed on [REDACTED_PHONE]`, damaging European
+documents for extraction and Q&A.
+
+**Fix.** `privacy.NUMERIC_DATE_RE` also protects `dd.mm.yyyy`/`mm/dd/yy`-style
+dates. Both leading parts must be 1-31 and the separator must repeat, so phone
+runs like `555.0199` or `555-123-4567` are still redacted. Documented trade-off:
+a phone number written exactly like a date is kept.
+
+**Verification.** New test
+`test_basic_privacy_preserves_numeric_dates_but_not_phone_numbers`.
+`uv run pytest`: **128 passed, 5 skipped**. Ruff check/format clean.
+
+---
+
+## 2026-10-02 — H-2: honest evaluation metrics and a new snapshot
+
+**Problem.** `citation_coverage` was "cited answers ÷ successful answers", but
+`QAService` never returns `success` without sources, so the metric was 1.0 by
+construction. The dataset's `expected_facts` were never scored, so answers that
+led with the wrong document were invisible to every metric.
+
+**Fix.**
+
+- `citation_coverage` = cited `success` answers ÷ all answerable questions.
+- New `answer_fact_recall`: expected fact strings found in the answer
+  (case/whitespace-insensitive), with refusals scoring 0.
+- New `first_citation_document_accuracy`: the first citation comes from an
+  expected document.
+- Found while checking per-question answers: the offline answerer chose the
+  heading `SERVICE AGREEMENT` as evidence for the Northwind renewal question,
+  because it ties with the real `Renewal Terms:` line on matched terms. It now
+  skips section headings, using the chunker's own rule (now the public
+  `is_section_heading`). This rule applies to every document and is not
+  question-specific. Value comparison (q_001) was deliberately not added.
+
+**New snapshot (2026-10-02, offline, hash, Python 3.13.14; `make eval` and
+`uv run` identical).** hit@5 1.0 · citation_coverage 0.857 · answer_fact_recall
+0.714 · first_citation_document_accuracy 0.714 · rejection 0.8 · support check
+0.857 · extraction 1.0. Remaining misses: q_001 refused (cannot compare
+amounts), q_003 missing the vendor name (neighbouring line), q_006 leading with
+another invoice's total (retrieval ranks a distractor first), nq_004 answered
+(known false positive). Before the heading rule: fact recall was 0.571.
+
+**Docs.** README (differentiator text, sample-question note, snapshot with an
+explanation of each miss), `docs/evaluation.md`, `docs/limitations.md`,
+`docs/demo_script.md`, `docs/resume_bullets.md`, guide I.3/I.6 and the B.9
+example. The README's "local embeddings score identically" claim is now marked
+as measured on the old metric set and not re-measured.
+
+**Verification.** New tests for the three metric functions, report key ranges
+and heading skipping. `uv run pytest`: **127 passed, 5 skipped**. Ruff clean.
+
+---
+
+## 2026-10-02 — M-6: chunks keep their line breaks
+
+**Problem.** `chunk_document` rebuilt chunk text with `" ".join(tokens)`, which
+flattened label/value lines and table rows into one run of words. The offline
+answerer splits evidence on sentence punctuation and newlines, so it treated a
+whole invoice as one "sentence" and returned entire chunks. Snippets and LLM
+context also lost their structure.
+
+**Fix.** The chunker windows over `TOKEN_RE.finditer` spans and slices the
+original section text, keeping the same size/overlap semantics.
+
+**Eval effect (honest, not re-tuned).** Offline: hit@5 1.0, citation 1.0,
+rejection 0.8, extraction 1.0, but `support_check_pass_rate` dropped from 1.0
+to 0.857. With line-level evidence, q_001 ("Which invoice is above 10,000 EUR?")
+is now refused: no single line holds two question terms, and the extractive
+answerer cannot compare amounts. Before, it "succeeded" by returning three whole
+invoices with the wrong one first. q_002 now leads with the Southbridge
+contract's renewal line, a wrong-document answer the current metrics cannot
+see (H-2 addresses this). Tuning the heuristic until the number recovered was
+considered and rejected as metric-gaming. The README snapshot will be
+regenerated once in H-2.
+
+**Verification.** New test `test_chunker_keeps_line_breaks_inside_chunks`.
+`uv run pytest`: **123 passed, 5 skipped**. Ruff clean.
+
+---
+
+## 2026-10-02 — H-4: backend and worker share one Compose environment
+
+**Problem.** The worker hardcoded `EMBEDDING_BACKEND: hash`, while the backend
+used `${EMBEDDING_BACKEND:-hash}`. Compose interpolates from `.env`, and this
+repo's `.env` sets `EMBEDDING_BACKEND=openrouter`. In Celery mode the worker
+indexed chunks with hash vectors while the API embedded queries with OpenRouter.
+Both are 1536-dimensional, so the dimension guard passed and retrieval silently
+degraded. The two environment blocks had also drifted elsewhere: the worker
+lacked `STRICT_PROVIDER_MODE`.
+
+**Fix.** One `x-app-environment` anchor is merged into both services; only
+`REQUIRE_DATABASE_READY` stays API-only. Docs that said Compose "forces" hash
+(README, limitations, guide N.1) now describe the `${EMBEDDING_BACKEND:-hash}`
+default. They also warn that switching embedding backends on an existing volume
+mixes incomparable vectors.
+
+**Verification.** `docker compose config`: backend and worker environments
+identical apart from `REQUIRE_DATABASE_READY`, with or without an
+`EMBEDDING_BACKEND` override. `make config-all`: passes.
+
+---
+
+## 2026-10-02 — H-3 and M-12: restart recovery and completed-only retrieval
+
+**H-3 problem.** In thread + Postgres mode (the Docker default), a backend
+restart killed in-flight thread tasks but left their documents
+`queued`/`parsing`/`processing` forever. Re-uploads "joined" a task that no
+longer existed, and `DELETE` returned 409. The UI's Remove button is disabled
+for non-terminal documents, so the user had no way out.
+
+**H-3 fix.** A FastAPI lifespan hook calls
+`DocumentService.recover_interrupted_thread_documents()` at API startup. It
+marks unfinished documents whose `processing_backend` is not `celery` as
+`failed` ("Processing was interrupted by a backend restart. Upload the document
+again to retry.") and clears their chunks/vectors. It runs only in the API
+process, because the Celery worker container also builds a `DocumentService`
+and must not fail documents the API is processing. It assumes a single API
+process. Added `DocumentRepository.list_unfinished_documents()`.
+
+**M-12 problem (found while fixing H-3).** `PgVectorStore.search` ignored
+document status, so chunks of in-flight or failed documents could be retrieved
+and cited when `/qa` was called without `document_ids`.
+
+**M-12 fix.** Search joins `documents` and returns only `completed` documents'
+chunks.
+
+**Verification.**
+
+- Unit tests: `test_startup_recovery_fails_interrupted_thread_documents`,
+  `test_recovered_document_is_reprocessed_on_reupload`.
+- Isolated Compose project (`intellidocs-verify-*`, fresh volumes, torn down
+  afterwards): seeded a completed document plus stuck thread and Celery
+  documents with indexed chunks. An exact-text search for the stuck documents
+  returned only the completed document (M-12). After `restart backend`, the
+  thread document reported `failed` with the re-upload message, the Celery
+  document stayed `processing`, `DELETE` returned 204, and the backend logged
+  `interrupted_thread_documents_failed count=1` (H-3).
+- `uv run pytest`: **122 passed, 5 skipped**. Ruff clean.
+
+---
+
+## 2026-10-02 — M-5: section titles no longer bypass privacy redaction
+
+**Problem.** The parser takes each page's first short line as `section_title`
+from raw text. `_replace_parsed_text` redacted page text but copied the raw
+title, and the chunker falls back to it. A first line such as
+`Contact jane.doe@example.com` therefore reached chunk rows, citations and the
+UI unredacted.
+
+**Fix.** `_replace_parsed_text` runs `section_title` through
+`apply_basic_privacy` as well.
+
+**Verification.** New test
+`test_section_titles_derived_from_raw_text_are_redacted` (runs the real TXT
+parser). `uv run pytest`: **120 passed, 5 skipped**. Ruff clean.
+
+---
+
+## 2026-10-02 — H-1: support-check grounding actually grounds
+
+**Problem.** `critic._content_tokens` kept every token longer than two
+characters, so "the", "and" and "for" counted as grounding overlap. With
+`SUPPORT_CHECK_MIN_OVERLAP=1`, almost any English answer passed. Reproduced: *"The
+moon is made of cheese and the sky is green."* citing an invoice chunk returned
+`citations_supported_by_context`. The existing test only passed because its
+sentence happened to share no function words with its chunk.
+
+**Fix.**
+
+- `core/text.py`: added `FUNCTION_WORDS`, `content_tokens()` and
+  `numeric_values()`. Numbers are normalised so "12,450.00", "12450" and
+  "12450.0" compare equal.
+- `rag/critic.py`: grounding overlap now uses `content_tokens`. Added a numeric
+  grounding layer: every number in the answer must appear in the cited chunk
+  text or the question (so "Which invoice is above 10,000 EUR?" can be echoed).
+  The reason `numbers_not_in_citations:<values>` lists the offending numbers.
+  The critic now receives the question from `QAService`.
+- New setting `SUPPORT_CHECK_NUMERIC_GROUNDING=true`.
+
+**Verification.**
+
+- New tests: function words are not evidence, invented numbers are rejected,
+  reformatted numbers are accepted, question numbers are allowed.
+- `uv run pytest`: **119 passed, 5 skipped**. `ruff check .` and
+  `ruff format --check .`: clean.
+- Offline eval unchanged (hit@5 1.0, citation 1.0, rejection 0.8, support check
+  1.0, extraction 1.0). The extractive answerer copies chunk sentences, so it
+  always passes both grounding layers. The change mainly protects the LLM path.
+
+**Still lexical.** A wrong answer built from the cited chunk's own words and
+numbers can still pass. This is documented in `docs/limitations.md`.
+
+---
+
+## 2026-10-02 — Documentation alignment after Ollama provider support
+
+**Context.** Local Ollama LLM support (`LLM_PROVIDER=ollama`, `make up-ollama`,
+optional `ollama` Compose profile) and the Python 3.13.14 bump landed on
+2026-07-10 without a dev-log entry. A full code/doc review found the docs had
+drifted from the code.
+
+**Documentation fixed.**
+
+- Project plan: Phase 5 status changed from "in progress" to implemented,
+  matching the implementation guide.
+- README: the embedding description said "hash by default". The settings default
+  is `EMBEDDING_BACKEND=auto` (OpenRouter embeddings when a key is set, else
+  hash), while Docker Compose and the test/eval runners pin `hash`.
+- Implementation guide: added the Ollama provider (Section 1.4, Compose services,
+  `make up-ollama`), the missing `DELETE /documents/{document_id}` contract,
+  `test_api_documents.py` in the test inventory, and the current Ollama cost
+  metric behaviour (`estimated_cost_usd=null` when no prices are configured).
+- `docs/limitations.md`, `docs/architecture.md`, `docs/demo_script.md`,
+  `docs/resume_bullets.md`: added the Ollama path and its limits.
+
+**Verification.**
+
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: **115 passed, 5 skipped** on Python
+  `3.13.14`. `ruff check .`: clean. Docker gates were not rerun for this
+  docs-only change.
+
+**Open code findings from the same review** (not fixed in this entry): the
+support-check grounding overlap counts common words such as "the", so it does
+not actually reject unrelated cited answers; `citation_coverage` is 1.0 by
+construction because success responses always carry sources; raw section titles
+bypass privacy redaction; thread-mode documents can stay stuck in a non-terminal
+status after a backend restart in Postgres mode.
+
+---
+
 ## 2026-06-22 — Phase 4 critical review and fixes
 
 **Context.** Full critical review of the Phase 4 durable async workflow

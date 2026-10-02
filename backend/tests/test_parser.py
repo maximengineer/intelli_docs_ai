@@ -40,6 +40,29 @@ def test_docx_parser_extracts_paragraphs() -> None:
     assert parsed.pages[0].page_number is None
 
 
+def test_docx_parser_keeps_tables_in_document_order() -> None:
+    buffer = BytesIO()
+    document = Document()
+    document.add_paragraph("INVOICE")
+    table = document.add_table(rows=2, cols=3)
+    table.cell(0, 0).text = "Vendor"
+    table.cell(0, 1).merge(table.cell(0, 2)).text = "Acme Analytics Ltd"
+    table.cell(1, 0).text = "Total Amount"
+    table.cell(1, 1).text = "EUR"
+    table.cell(1, 2).text = "12,450.00"
+    document.add_paragraph("Payment is due within 30 days.")
+    document.save(buffer)
+
+    parsed = parse_document("doc_table", "invoice.docx", buffer.getvalue())
+
+    assert parsed.text.splitlines() == [
+        "INVOICE",
+        "Vendor | Acme Analytics Ltd",
+        "Total Amount | EUR | 12,450.00",
+        "Payment is due within 30 days.",
+    ]
+
+
 def test_pdf_parser_extracts_digital_text() -> None:
     parsed = parse_document(
         document_id="doc_pdf",

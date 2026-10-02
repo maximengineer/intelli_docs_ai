@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class LLMClient(Protocol):
+    model_name: str
+
     def complete(
         self,
         prompt: str,
@@ -27,37 +29,13 @@ class LLMClient(Protocol):
         """Return and clear token usage recorded for the current thread, if any."""
 
 
-class LocalStubLLMClient:
-    """Deterministic test/demo adapter that echoes the prompt.
+class OpenAICompatibleLLMClient:
+    """Client for any OpenAI-compatible chat endpoint (OpenRouter, Ollama, ...).
 
-    Used only as a typing-friendly placeholder. The production fallback path is
-    not this client but the deterministic heuristics in the documents/rag layers,
-    selected when ``get_llm_client`` returns ``None``.
-    """
-
-    def complete(
-        self,
-        prompt: str,
-        *,
-        system: str | None = None,
-        temperature: float = 0.0,
-        max_tokens: int | None = None,
-        json_mode: bool = False,
-    ) -> str:
-        del system, temperature, max_tokens, json_mode
-        return prompt
-
-    def pop_usage(self) -> TokenUsage | None:
-        return None
-
-
-class OpenRouterLLMClient:
-    """OpenAI-compatible client pointed at OpenRouter.
-
-    A single ``OPENROUTER_API_KEY`` unlocks chat completions across many model
-    providers. Timeouts and bounded retries are delegated to the OpenAI SDK. The
-    provider's real token usage from the most recent call is recorded per-thread
-    so callers can report actual (not estimated) cost.
+    Timeouts and bounded retries are delegated to the OpenAI SDK. The provider's
+    real token usage from the most recent call is recorded per-thread so callers
+    can report actual (not estimated) cost. ``model_name`` is the model this
+    client calls, so metrics label answers with what actually produced them.
     """
 
     def __init__(
@@ -68,8 +46,7 @@ class OpenRouterLLMClient:
         model: str,
         timeout: float,
         max_retries: int,
-        referer: str,
-        title: str,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         from openai import OpenAI  # lazy import keeps offline installs slim
 
@@ -79,8 +56,8 @@ class OpenRouterLLMClient:
             timeout=timeout,
             max_retries=max_retries,
         )
-        self._model = model
-        self._extra_headers = {"HTTP-Referer": referer, "X-Title": title}
+        self.model_name = model
+        self._extra_headers = extra_headers or {}
         self._local = threading.local()
 
     def complete(
@@ -98,11 +75,12 @@ class OpenRouterLLMClient:
         messages.append({"role": "user", "content": prompt})
 
         kwargs: dict[str, object] = {
-            "model": self._model,
+            "model": self.model_name,
             "messages": messages,
             "temperature": temperature,
-            "extra_headers": self._extra_headers,
         }
+        if self._extra_headers:
+            kwargs["extra_headers"] = self._extra_headers
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
         if json_mode:
@@ -134,31 +112,28 @@ def get_llm_client() -> LLMClient | None:
         return None
     try:
         if settings.llm_provider == "ollama":
-            model = settings.ollama_model
-            client = OpenRouterLLMClient(
+            # Ollama ignores the key but the SDK requires a non-empty one.
+            client = OpenAICompatibleLLMClient(
                 api_key="ollama",
                 base_url=settings.ollama_base_url,
-                model=model,
+                model=settings.ollama_model,
                 timeout=settings.llm_timeout_seconds,
                 max_retries=settings.llm_max_retries,
-                referer=settings.llm_referer,
-                title=settings.llm_title,
             )
         else:
-            model = settings.llm_model
-            client = OpenRouterLLMClient(
+            client = OpenAICompatibleLLMClient(
                 api_key=settings.openrouter_api_key or "",
                 base_url=settings.openrouter_base_url,
-                model=model,
+                model=settings.llm_model,
                 timeout=settings.llm_timeout_seconds,
                 max_retries=settings.llm_max_retries,
-                referer=settings.llm_referer,
-                title=settings.llm_title,
+                # OpenRouter app attribution; meaningless to other providers.
+                extra_headers={"HTTP-Referer": settings.llm_referer, "X-Title": settings.llm_title},
             )
     except Exception:  # pragma: no cover - misconfiguration / missing SDK
         if settings.strict_provider_mode:
             raise
         logger.warning("llm_client_init_failed; falling back to offline heuristics", exc_info=True)
         return None
-    logger.info("llm_client_ready provider=%s model=%s", settings.llm_provider, model)
+    logger.info("llm_client_ready provider=%s model=%s", settings.llm_provider, client.model_name)
     return client

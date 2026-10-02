@@ -13,13 +13,16 @@ def chunk_document(parsed: ParsedDocument) -> list[DocumentChunk]:
     for page in parsed.pages:
         sections = _split_sections(page.text)
         for section_title, section_text in sections:
-            tokens = TOKEN_RE.findall(section_text)
+            # Window over token spans and slice the original text, so chunks keep
+            # their line breaks (label/value lines, table rows) instead of being
+            # flattened into one run of words.
+            tokens = list(TOKEN_RE.finditer(section_text))
             if not tokens:
                 continue
             start = 0
             while start < len(tokens):
                 end = min(start + settings.chunk_size_tokens, len(tokens))
-                text = " ".join(tokens[start:end]).strip()
+                text = section_text[tokens[start].start() : tokens[end - 1].end()].strip()
                 if text:
                     chunks.append(
                         DocumentChunk(
@@ -39,6 +42,12 @@ def chunk_document(parsed: ParsedDocument) -> list[DocumentChunk]:
     return chunks
 
 
+def is_section_heading(line: str) -> bool:
+    """Short all-caps lines or lines ending in ':' are treated as section headings."""
+    stripped = line.strip()
+    return bool(stripped) and len(stripped) <= 80 and (stripped.endswith(":") or stripped.isupper())
+
+
 def _split_sections(text: str) -> list[tuple[str | None, str]]:
     lines = [line.rstrip() for line in text.splitlines()]
     sections: list[tuple[str | None, list[str]]] = []
@@ -47,11 +56,7 @@ def _split_sections(text: str) -> list[tuple[str | None, str]]:
 
     for line in lines:
         stripped = line.strip()
-        is_heading = (
-            bool(stripped)
-            and len(stripped) <= 80
-            and (stripped.endswith(":") or stripped.isupper())
-        )
+        is_heading = is_section_heading(stripped)
         if is_heading and current_lines:
             sections.append((current_title, current_lines))
             current_title = stripped.rstrip(":")

@@ -10,8 +10,20 @@ from requests import RequestException
 API_URL = os.getenv("INTELLIDOCS_API_URL", "http://localhost:8000")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
 MAX_DOCUMENTS = int(os.getenv("MAX_DOCUMENTS", "10"))
+# Raised by `make up-ollama`: local CPU models can take minutes per call.
+QA_TIMEOUT_SECONDS = float(os.getenv("QA_TIMEOUT_SECONDS", "60"))
+STATUS_POLL_SECONDS = float(os.getenv("STATUS_POLL_SECONDS", "120"))
+STATUS_POLL_INTERVAL_SECONDS = 0.5
 TERMINAL_DOCUMENT_STATUSES = {"completed", "failed"}
 WORKSPACE_DOCUMENTS_KEY = "workspace_documents"
+# Questions for the bundled synthetic files in data/sample_documents. The last
+# one is deliberately unanswerable, to demo the insufficient-information path.
+SAMPLE_QUESTIONS = [
+    "What are the renewal terms in the Northwind service agreement?",
+    "Which vendor supplied ergonomic equipment?",
+    "How many remote work days are allowed each week?",
+    "Which document mentions a Singapore office?",
+]
 
 STATUS_LABELS = {
     "uploaded": "Uploaded",
@@ -64,6 +76,11 @@ def upload_document_id(content: bytes) -> str:
     return "doc_" + hashlib.sha256(content).hexdigest()[:16]
 
 
+def use_sample_question(question: str) -> None:
+    # Runs as a widget callback, i.e. before the question input is rendered.
+    st.session_state["question"] = question
+
+
 def render_extracted_fields(fields: dict) -> None:
     rows = [
         {"Field": key.replace("_", " ").title(), "Value": value}
@@ -71,7 +88,7 @@ def render_extracted_fields(fields: dict) -> None:
         if value not in (None, "", "unknown")
     ]
     if rows:
-        st.dataframe(rows, hide_index=True, use_container_width=True)
+        st.dataframe(rows, hide_index=True, width="stretch")
     else:
         st.info("No high-confidence fields were extracted.")
 
@@ -127,12 +144,6 @@ st.markdown(
         background-color: #ff6b6b !important;
         border-color: #ff6b6b !important;
         color: #ffffff !important;
-    }
-    /* Tighten bordered document cards in the sidebar */
-    [data-testid="stSidebarUserContent"]
-      .st-emotion-cache-1ne20ew {
-        gap: 0.25rem !important;
-        padding: 0.5rem !important;
     }
     </style>
     """,
@@ -218,7 +229,7 @@ with st.sidebar:
     for workspace_document in list(documents):
         document_id = workspace_document["document_id"]
         document_status = workspace_document.get("status", "queued")
-        with st.container(border=True):
+        with st.container(border=True, gap="xsmall"):
             if st.button(
                 workspace_document["filename"],
                 key=f"select_{document_id}",
@@ -283,7 +294,7 @@ if pending_documents:
     ) as processing_status:
         status_placeholder = st.empty()
         try:
-            for _ in range(240):
+            for _ in range(int(STATUS_POLL_SECONDS / STATUS_POLL_INTERVAL_SECONDS)):
                 refreshed_documents: list[dict] = []
                 for workspace_document in workspace_documents():
                     status_response = requests.get(
@@ -311,7 +322,7 @@ if pending_documents:
                 ):
                     processing_status.update(label="Documents ready", state="complete")
                     st.rerun()
-                time.sleep(0.5)
+                time.sleep(STATUS_POLL_INTERVAL_SECONDS)
             else:
                 st.info("Documents are still processing. Leave this page open to continue polling.")
         except RequestException as exc:
@@ -353,8 +364,12 @@ if document:
     metric_cols[2].metric("Chunks", document["chunk_count"])
     confidence = document.get("extraction_confidence")
     metric_cols[3].metric(
-        "Extraction confidence",
+        "Field completeness",
         "n/a" if confidence is None else f"{confidence:.2f}",
+        help=(
+            "Deterministic score from required-field completeness and plausibility "
+            "checks. It is not a model's confidence."
+        ),
     )
     if document.get("needs_review"):
         st.warning("Extraction completed with review recommended.")
@@ -380,6 +395,17 @@ active_document_ids = [
 ]
 if not active_document_ids:
     st.info("Upload and process at least one document before asking a question.")
+else:
+    st.caption("Sample questions for the bundled documents in `data/sample_documents/`:")
+    sample_cols = st.columns(len(SAMPLE_QUESTIONS), gap="small")
+    for index, (column, sample) in enumerate(zip(sample_cols, SAMPLE_QUESTIONS, strict=True)):
+        column.button(
+            sample,
+            key=f"sample_{index}",
+            type="tertiary",
+            on_click=use_sample_question,
+            args=(sample,),
+        )
 with st.form("qa_form", clear_on_submit=False):
     input_col, btn_col = st.columns([6, 1], vertical_alignment="bottom")
     question = input_col.text_input(
@@ -402,7 +428,7 @@ if ask_submitted and question.strip() and active_document_ids:
             f"{API_URL}/qa/stream",
             json={"question": question, "document_ids": active_document_ids},
             stream=True,
-            timeout=60,
+            timeout=QA_TIMEOUT_SECONDS,
         ) as response:
             if response.ok:
                 for line in response.iter_lines(decode_unicode=True):
@@ -435,14 +461,14 @@ if ask_submitted and question.strip() and active_document_ids:
         st.caption(f"run_id: {result['run_id']}")
         if result.get("metrics"):
             metrics = result["metrics"]
-            st.caption(
-                " | ".join(
-                    [
-                        f"latency: {metrics['latency_ms']} ms",
-                        f"retrieved: {metrics['candidates_retrieved']}",
-                        f"context: {metrics['context_chunks_used']}",
-                        f"citations: {metrics['citation_count']}",
-                        f"model: {metrics['model_name']}",
-                    ]
-                )
-            )
+            caption_parts = [
+                f"latency: {metrics['latency_ms']} ms",
+                f"retrieved: {metrics['candidates_retrieved']}",
+                f"context: {metrics['context_chunks_used']}",
+                f"citations: {metrics['citation_count']}",
+            ]
+            # No model is shown when the question was refused before any
+            # answerer ran (nothing relevant was retrieved).
+            if metrics.get("model_name"):
+                caption_parts.append(f"model: {metrics['model_name']}")
+            st.caption(" | ".join(caption_parts))

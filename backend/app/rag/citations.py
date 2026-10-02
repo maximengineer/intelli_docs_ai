@@ -3,6 +3,9 @@ import re
 from app.rag.generator import FALLBACK_ANSWER
 from app.rag.schemas import RetrievedChunk, SourceCitation
 
+# Some models close their tags (``...</cite>``); the closing tag carries no index
+# and must not leak into the displayed answer.
+CITE_CLOSE_RE = re.compile(r"</cite\s*>", re.IGNORECASE)
 CITE_RE = re.compile(r"<cite\s+index\s*=\s*[\"'](?P<index>\d+)[\"']\s*>")
 
 
@@ -16,7 +19,8 @@ def map_citations(
     if any(index >= len(context) for index in indexes):
         return FALLBACK_ANSWER, [], False
 
-    clean_answer = CITE_RE.sub("", answer).strip()
+    clean_answer = CITE_CLOSE_RE.sub("", CITE_RE.sub("", answer))
+    clean_answer = re.sub(r"\s+([.,;:!?])", r"\1", clean_answer).strip()
     citations: list[SourceCitation] = []
     seen: set[int] = set()
     for index in indexes:

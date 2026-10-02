@@ -42,12 +42,14 @@ class QAMetrics(BaseModel):
     candidates_retrieved: int
     context_chunks_used: int
     citation_count: int
-    model_name: str
+    # The model that produced the answer: the LLM's name, "offline-heuristic" for
+    # the offline answerer, or None when no answerer ran (relevance-gate refusal).
+    model_name: str | None
     # Real provider token counts when the LLM is used; a word-count approximation
-    # otherwise (model_name == "offline-heuristic" signals the approximate case).
+    # for the offline answerer; 0 with source "none" when no answerer ran.
     input_tokens: int
     output_tokens: int
-    token_usage_source: Literal["provider", "estimate"]
+    token_usage_source: Literal["provider", "estimate", "none"]
     estimated_cost_usd: float | None
     cost_estimate_available: bool
     price_table_as_of: str

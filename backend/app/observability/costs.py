@@ -10,7 +10,8 @@ from app.core.settings import get_settings
 class TokenUsage(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
-    source: Literal["provider", "estimate"] = "provider"
+    # "none": no answerer ran (e.g. relevance-gate refusal), so nothing was consumed.
+    source: Literal["provider", "estimate", "none"] = "provider"
 
 
 def estimate_tokens(text: str) -> int:

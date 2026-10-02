@@ -2,36 +2,72 @@
 
 IntelliDocs AI is a production-style document intelligence system. Upload business documents, extract structured facts, ask questions, and get answers with backend-verified citations, or a clear refusal when the documents don't contain the answer.
 
-## What Makes This Different
+## What makes this different
 
-Calling an LLM API is easy. The hard part is everything around it:
+Calling an LLM API is the easy part. Most of the work in this project went into
+what happens around that call.
 
-**Citations you can trust.** Most RAG demos let the LLM say "Source: page 3" — the LLM invented that. Here, the LLM only outputs `<cite index="0">` placeholders. The backend validates each index against the actual retrieved context array and maps it to real metadata: document ID, filename, page number, section, chunk ID, and a verbatim snippet. An invalid index triggers a fallback, not a hallucinated citation.
+### Backend-verified citations
 
-**Knowing when to say "I don't know."** The system detects when retrieved context doesn't support the question (citation-integrity and lexical-grounding checks) and returns an explicit `insufficient_information` response with empty sources. Retrieved context is never presented as evidence for an unsupported answer.
+In many RAG demos the model writes something like "Source: page 3" itself, and
+nothing checks it. Here the model only writes placeholders such as
+`<cite index="0">`. The backend checks each index against the context it actually
+retrieved and maps it to real metadata: document ID, filename, page number,
+section, chunk ID and a verbatim snippet. An invalid index produces the
+insufficient-information fallback instead of a made-up citation.
 
-**Measured quality, not vibes.** An adversarial evaluation pipeline (keyword-overlapping distractor documents, negative questions) measures `document_hit_at_5`, `citation_coverage`, `unsupported_answer_rejection_rate`, and `extraction_field_accuracy`. The 0.8 rejection rate is a genuine limitation of the lexical fallback, reported honestly — no fake confidence scores or invented benchmarks.
+### Refusing unsupported questions
 
-**Durable async document processing.** Documents go through parse, privacy redaction, chunk, then fan out to parallel branches (embedding, extraction, summarisation), and aggregate into durable Postgres state. The API process reads state written by a separate Celery worker, which tracks status per branch, retries idempotently, deduplicates by content hash, and passes only task-safe storage references (no raw bytes) through Redis.
+Before an answer is returned, the backend checks citation integrity, lexical
+grounding and numeric grounding (every number in the answer must appear in the
+cited text or the question). If a check fails, the API returns
+`insufficient_information` with empty sources. Retrieved context is never shown
+as evidence for an answer it does not support.
 
-**Production-aware engineering.** It also covers upload safety (MIME/size/extension validation, parser timeouts), pgvector with dimension guards and advisory-lock schema init, bounded connection pooling, Celery task time limits, privacy-aware text variants (`raw`/`ai`/`display`), and Alembic migrations that tolerate self-created schemas. None of this is glamorous, but it separates a toy from something production-adjacent.
+### Evaluation with real numbers
 
-This is a portfolio project. It says "production-style" and "portfolio implementation," not "enterprise-ready." It documents its limitations rather than hiding them.
+The evaluation set is adversarial on purpose, with keyword-overlapping distractor
+documents and negative questions. It measures retrieval hit rate, citation
+coverage over all answerable questions, whether expected facts appear in the
+answer, whether the first citation comes from the right document,
+unsupported-answer rejection and extraction accuracy. The offline fallback scores
+well below 1.0 on several of these, and the numbers below are reported as
+measured. There are no confidence scores or benchmark claims.
 
-## Business Problem
+### Durable async processing
+
+Each document is parsed, privacy-redacted and chunked, then fans out to three
+parallel branches (embedding, extraction, summarisation) whose results are
+aggregated into Postgres. In Celery mode a separate worker writes that state and
+the API reads it. The worker tracks status per branch, retries idempotently,
+deduplicates by content hash and passes storage references through Redis instead
+of raw file bytes.
+
+### Production-style details
+
+The project also handles upload safety (MIME, size and extension checks, parser
+timeouts), pgvector with dimension guards and advisory-lock schema setup, bounded
+connection pooling, Celery task time limits, privacy-aware text variants
+(`raw`/`ai`/`display`) and Alembic migrations that tolerate schemas the app
+created itself.
+
+This is a portfolio implementation built in a production-style way. Its known
+limitations are listed in `docs/limitations.md`.
+
+## Business problem
 
 Business teams review invoices, contracts, policies and reports manually. Summaries and Q&A are useful only when the system can show where an answer came from and refuse unsupported questions.
 
-## How It Works
+## How it works
 
 The AI sits behind small adapter interfaces (`LLMClient`, `EmbeddingModel`):
 
-- **Generation / summarisation / extraction** — OpenRouter (cloud, one `OPENROUTER_API_KEY`, OpenAI-compatible, pick any chat model) or Ollama (local, no key, `make up-ollama`). Falls back to a deterministic extractive answerer with no key and no local model.
-- **Embeddings / retrieval** — zero-dependency hash embeddings by default, with opt-in local `sentence-transformers` for real semantic search or OpenRouter embeddings when configured.
+- Generation, summarisation and extraction use OpenRouter (cloud, one `OPENROUTER_API_KEY`, OpenAI-compatible, any chat model) or Ollama (local, no key, `make up-ollama`). With neither configured, a deterministic extractive answerer takes over.
+- For embeddings, `EMBEDDING_BACKEND=auto` (the settings default) uses OpenRouter embeddings when an `OPENROUTER_API_KEY` is set and zero-dependency hash embeddings otherwise. Docker Compose defaults to `hash` unless `EMBEDDING_BACKEND` is set in your shell or `.env`; the test and offline-evaluation runners always pin `hash`. Local `sentence-transformers` is an explicit opt-in (`EMBEDDING_BACKEND=local`) for real semantic search without a key.
 
-Because of the fallbacks, tests, CI and a key-less clone always run.
+Because of these fallbacks, the tests, CI and a fresh clone without keys all run.
 
-## Demo Workflow
+## Demo workflow
 
 ```text
 Upload documents -> extract facts -> ask questions -> get cited answers -> run evaluation
@@ -43,9 +79,9 @@ user inspect completed results, scopes Q&A to the completed workspace documents
 and provides a Remove action that deletes document state, chunks/vectors and any
 remaining upload blob through the backend API.
 
-For a literal reviewer walkthrough, see `docs/demo_script.md`.
+For a step-by-step reviewer walkthrough, see `docs/demo_script.md`.
 
-## Tech Stack
+## Tech stack
 
 - FastAPI backend
 - Streamlit UI
@@ -60,10 +96,10 @@ For a literal reviewer walkthrough, see `docs/demo_script.md`.
   processing path
 - Streamlit-compatible verified Q&A streaming
 - support-check gate, structured run metrics, lexical reranking, privacy text variants and extraction confidence gates
-- Pytest tests (LLM paths covered with a fake client — no real network calls); ruff-linted
+- Pytest tests (LLM paths use a fake client and make no network calls), linted with ruff
 - Docker Compose
 
-## Run With Docker Compose
+## Run with Docker Compose
 
 ```bash
 cp .env.example .env
@@ -83,7 +119,8 @@ container network:
 BACKEND_PORT=18000 FRONTEND_PORT=18501 make up
 ```
 
-By default the app runs offline with no API key (hash embeddings + extractive answerer).
+By default the Docker stack runs offline with no API key (`ENABLE_LLM=false`, hash
+embeddings + extractive answerer).
 
 ### Run with local Ollama LLM (no API key)
 
@@ -93,10 +130,34 @@ To run with a self-hosted LLM instead of a cloud API:
 make up-ollama
 ```
 
-This starts the full stack plus an Ollama container, pulls the `phi4-mini`
-model (~2.5 GB download on first run) and enables LLM-backed summaries,
-extraction and cited Q&A answers — all running locally on CPU with no API key.
-The model is cached in a Docker volume so subsequent starts are fast.
+This starts an Ollama container, pulls the `phi4-mini` model (~2.5 GB download
+on first run) before the app starts, then starts the stack with LLM-backed
+summaries, extraction and cited Q&A answers, all running locally on CPU with no
+API key. The model is cached in a Docker volume, so later starts are fast.
+
+CPU inference is slow. Timings measured on 2026-10-02 (phi4-mini, 12-core CPU,
+no GPU; local measurements, not benchmarks):
+
+| Call | Time |
+|---|---|
+| model load | ~11 s |
+| field extraction, small invoice | ~22 s |
+| cited Q&A over retrieved sample chunks | ~30-75 s |
+| summary at the 12,000-character input cap | ~255 s |
+
+`make up-ollama` therefore raises `LLM_TIMEOUT_SECONDS` to 300, disables
+retries, widens the Celery task limits and gives the UI longer Q&A and
+status-polling timeouts. The default cloud settings (30 s timeout, 2 retries)
+would time out on every CPU call and silently fall back to the offline
+heuristics. Small local models also follow output contracts less reliably, so the
+prompts were hardened after measuring phi4-mini: extraction sends a compact key list
+instead of a JSON Schema (the model had echoed the schema), out-of-set labels
+become `"unknown"` instead of discarding the whole extraction, and the answer
+prompt shows one citation example. In a rerun, phi4-mini answered the Northwind
+renewal and Globex total questions correctly with citations, the numeric
+grounding check rejected an answer containing an invented "20,000", and a
+cited refusal was returned as `insufficient_information`. Use a larger model or
+a GPU for better answers; a cloud model is the primary quality path.
 
 To use a different model:
 
@@ -104,14 +165,18 @@ To use a different model:
 OLLAMA_MODEL=gemma3:4b make up-ollama
 ```
 
-The adapter pattern means zero code changes between Ollama and OpenRouter — the
-same `LLMClient` interface speaks OpenAI-compatible protocol to either provider.
+Switching between Ollama and OpenRouter needs no code changes: the same
+`LLMClient` talks to both through their OpenAI-compatible APIs.
 
 Docker Compose runs the backend with `VECTOR_STORE_BACKEND=postgres`, backed by
-the `pgvector/pgvector:pg18` service, and forces `EMBEDDING_BACKEND=hash` so the
-container does not need a model download or optional torch install. In this mode
-document metadata, summaries, extracted fields, processing status, chunks and
-evaluation runs are durable in Postgres. Local `uvicorn` development defaults to
+the `pgvector/pgvector:pg18` service. It takes `EMBEDDING_BACKEND` from your shell
+or `.env` and defaults to `hash` when unset, so the no-key container needs no model
+download or optional torch install. The backend and worker share one environment
+block, so they always embed the same way. Vectors from different embedding
+backends are not comparable: after switching `EMBEDDING_BACKEND` on an existing
+volume, reset it with `docker compose down -v` or remove and re-upload the
+documents. In this mode document metadata, summaries, extracted fields,
+processing status, chunks and evaluation runs are durable in Postgres. Local `uvicorn` development defaults to
 `VECTOR_STORE_BACKEND=memory` unless you opt into Postgres in `.env`.
 
 Postgres 18 stores data under a versioned subdirectory, so Compose mounts the
@@ -120,6 +185,8 @@ the old Postgres 17 volume layout, start from a fresh demo volume or perform a
 proper `pg_upgrade`; do not expect a pg17 data directory to boot directly as
 pg18.
 
+Both images install pinned dependencies from `uv.lock`; the backend image has
+no Streamlit or test tools, and the frontend image has only the UI dependencies.
 The frontend is also built as a Docker image, so Streamlit dependencies are
 installed at build time rather than on every container start.
 
@@ -256,15 +323,15 @@ uv run uvicorn app.main:app --app-dir backend --reload
 UV_CACHE_DIR=.uv-cache INTELLIDOCS_API_URL=http://127.0.0.1:8000 uv run streamlit run frontend/streamlit_app.py
 ```
 
-## Sample Questions
+## Sample questions
 
-- `Which invoice is above 10,000 EUR?`
+- `Which invoice is above 10,000 EUR?` (needs the LLM path; the offline extractive answerer cannot compare amounts and refuses)
 - `What are the renewal terms in the Northwind service agreement?`
 - `Which vendor supplied ergonomic equipment?`
 - `How many remote work days are allowed each week?`
 - `What is the largest operational risk for Q2?`
-- `What is the largest financial risk in Q2?` (distinct doc — tests retrieval discrimination)
-- `Which document mentions a Singapore office?` (unsupported → fallback)
+- `What is the largest financial risk in Q2?` (a different document; tests whether retrieval can tell the two Q2 reports apart)
+- `Which document mentions a Singapore office?` (unsupported, so it returns the fallback)
 
 ## Evaluation
 
@@ -282,8 +349,9 @@ uv run python scripts/run_evaluation.py
 
 The evaluation set is intentionally adversarial: 13 documents including keyword-overlapping distractors (multiple invoices, two service agreements, an operational vs. a financial Q2 report) so retrieval has to discriminate, plus negative questions whose keywords appear in the corpus but whose specific facts do not.
 
-Current snapshot — **2026-06-07, offline, no API key** (Python 3.13,
-extractive answerer; `EMBEDDING_BACKEND=hash`):
+Snapshot from **2026-10-02**, offline with no API key (Python 3.13.14,
+extractive answerer, `EMBEDDING_BACKEND=hash`). `make eval` and `uv run` give
+identical results:
 
 ```json
 {
@@ -297,22 +365,50 @@ extractive answerer; `EMBEDDING_BACKEND=hash`):
   "extraction_rows_scored": 8,
   "missing_expected_filenames": [],
   "document_hit_at_5": 1.0,
-  "citation_coverage": 1.0,
+  "citation_coverage": 0.857,
+  "answer_fact_recall": 0.714,
+  "first_citation_document_accuracy": 0.714,
   "unsupported_answer_rejection_rate": 0.8,
-  "support_check_pass_rate": 1.0,
+  "support_check_pass_rate": 0.857,
   "extraction_field_accuracy": 1.0
 }
 ```
 
-The `0.8` rejection rate is real and instructive: the offline lexical answerer is fooled by one keyword-dense but unanswerable question (*"What is the late fee percentage on the Acme invoice?"* — the invoice mentions a late fee but never a percentage). The LLM-backed path (`ENABLE_LLM=true`) is designed to refuse these, but its numbers are not committed here because they require an API key and are non-deterministic.
+Values are rounded to three decimals here. What the misses mean:
+
+- `citation_coverage` 0.857 (6 of 7 answerable questions answered with
+  citations): the extractive answerer refuses *"Which invoice is above 10,000
+  EUR?"* because it cannot compare amounts. Refusing is the safe failure.
+- `answer_fact_recall` 0.714: one answer cites the right ergonomic-equipment line
+  but not the vendor name, which sits on a different line.
+- `first_citation_document_accuracy` 0.714: for *"What is the total amount on
+  the Globex invoice?"* the first cited line is another invoice's total. Lexical
+  retrieval ranks a keyword-similar invoice above Globex.
+- `unsupported_answer_rejection_rate` 0.8: the offline lexical answerer is fooled
+  by one keyword-dense but unanswerable question (*"What is the late fee
+  percentage on the Acme invoice?"*; the invoice mentions a late fee but never a
+  percentage).
+
+The LLM-backed path (`ENABLE_LLM=true`) is designed to handle these cases, but its
+numbers are not committed here because they require a provider and are
+non-deterministic. Before 2026-10-02, `citation_coverage` was computed over
+successful answers only, which made it 1.0 by construction. It now uses all
+answerable questions. See `docs/dev_log.md`.
 
 Latency is host-dependent; rerun `make eval` for the current local value.
 
-Local semantic embeddings (`EMBEDDING_BACKEND=local`) score **identically** on this set (only latency changes, ~18 ms). That is expected, not a bug: these questions share literal keywords with their answer docs, so lexical retrieval already finds them, and the offline answerer is lexical in both runs. The semantic advantage shows up where this offline eval can't reach it — on paraphrased queries with no shared keywords (proven by `test_local_embeddings`) and in *answering* once the LLM is enabled. These are local demo measurements, not benchmark claims.
+Local semantic embeddings (`EMBEDDING_BACKEND=local`) scored the same as hash
+embeddings on the earlier (2026-06-07) metric set and have not been re-measured
+against the 2026-10-02 metrics. That result is expected: these questions share
+literal keywords with their answer documents, so lexical retrieval already finds
+them, and the offline answerer is lexical in both runs. Semantic embeddings help
+with paraphrased queries that share no keywords (covered by
+`test_local_embeddings`) and with LLM-written answers, and this offline eval
+measures neither. These are local demo measurements, not benchmark claims.
 
 ## Architecture
 
-The current implementation has completed the Phase 5 portfolio-demo scope:
+The implementation covers the Phase 5 portfolio-demo scope:
 
 ```text
 FastAPI upload -> durable upload store -> queued thread/Celery task
@@ -331,17 +427,17 @@ The citation mapper is the trust boundary. The generator only emits placeholders
 See `docs/limitations.md`. A chronological record of engineering changes and
 plan-vs-reality deviations is in `docs/dev_log.md`.
 
-## Future Improvements
+## Future improvements
 
 - richer evaluator-based answer quality scoring
 - optional Langfuse/Phoenix integration
 - hosted deployment automation
 
-## Resume Bullets
+## Resume bullets
 
 - Built IntelliDocs AI, a production-inspired document intelligence portfolio project using Python, FastAPI, Streamlit, RAG and structured (Pydantic-validated) extraction.
 - Designed a provider-adapter layer (OpenRouter cloud API or local Ollama, both OpenAI-compatible) with deterministic offline fallbacks, so summaries, extraction and cited answers run with or without an API key and tests use a mocked client.
-- Implemented backend-verified citation mapping that validates LLM-chosen indexes against retrieved context, preventing citation hallucination, with an insufficient-information fallback for unsupported questions.
-- Created an adversarial offline evaluation (distractor documents, keyword-overlapping negatives) measuring retrieval hit-rate, citation coverage, unsupported-answer rejection and extraction accuracy — reporting real, non-perfect numbers.
+- Implemented backend-verified citation mapping that validates LLM-chosen indexes against retrieved context, so the model never supplies citation metadata itself, with an insufficient-information fallback for unsupported questions.
+- Created an adversarial offline evaluation (distractor documents, keyword-overlapping negatives) measuring retrieval hit-rate, citation coverage, unsupported-answer rejection and extraction accuracy, and reported the real, imperfect results.
 
 More detailed CV-ready bullets are in `docs/resume_bullets.md`.

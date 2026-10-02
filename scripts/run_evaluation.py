@@ -10,8 +10,8 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 USE_LLM = "--use-llm" in sys.argv
 if not USE_LLM:
-    # Pin the CLI evaluator before importing app modules. Several services have
-    # import-time singletons, and .env may contain live provider settings.
+    # Pin the CLI evaluator before importing app modules: settings are cached on
+    # first read, and .env may contain live provider settings.
     os.environ["ENABLE_LLM"] = "false"
     os.environ["EMBEDDING_BACKEND"] = "hash"
     os.environ["VECTOR_STORE_BACKEND"] = "memory"

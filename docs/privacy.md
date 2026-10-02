@@ -39,6 +39,10 @@ Organisation, vendor, party, and company names are intentionally preserved by
 default so extraction and name-based retrieval still work.
 The account and tax patterns are deliberately conservative enough to preserve
 normal business prose such as account manager names and VAT-rate text.
+Dates are protected before phone redaction: ISO dates (`2026-06-05`) and numeric
+dates whose first two parts are 1-31 with a repeated separator (`05.06.2026`,
+`12/25/2026`, `1-7-26`). A phone number written exactly like such a date is
+therefore not redacted.
 
 ## Limits
 

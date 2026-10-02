@@ -44,3 +44,40 @@ def test_invoice_extraction_accepts_currency_suffix() -> None:
 
     assert fields.amount == 1200.5
     assert fields.currency == "GBP"
+
+
+def test_heuristic_extractor_reads_docx_table_rows() -> None:
+    from app.documents.extractor import extract_fields
+
+    fields = extract_fields("INVOICE\nVendor | Acme Analytics Ltd\nDue Date | 2026-02-14")
+
+    assert fields.vendor == "Acme Analytics Ltd"
+    assert fields.due_date == "2026-02-14"
+
+
+def test_llm_extraction_request_lists_keys_instead_of_a_json_schema() -> None:
+    from app.documents.extractor import extraction_request
+    from app.documents.schemas import ExtractedFields
+
+    request = extraction_request("Invoice\nVendor: Acme")
+
+    for name in ExtractedFields.model_fields:
+        assert f"- {name}:" in request
+    # Small models echo a JSON Schema back; none of its markers may be sent.
+    for schema_marker in ('"properties"', '"title"', '"$defs"', '"anyOf"'):
+        assert schema_marker not in request
+    assert '"vendor":null' in request
+    assert request.endswith("Document text:\nInvoice\nVendor: Acme")
+
+
+def test_extracted_enum_labels_are_normalised_not_rejected() -> None:
+    from app.documents.schemas import ExtractedFields
+
+    fields = ExtractedFields.model_validate_json(
+        '{"document_type": "SERVICE AGREEMENT", "party_name": "Northwind Retail Group",'
+        ' "risk_level": "Medium"}'
+    )
+
+    assert fields.document_type == "unknown"
+    assert fields.risk_level == "medium"
+    assert fields.party_name == "Northwind Retail Group"

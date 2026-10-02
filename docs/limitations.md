@@ -4,6 +4,7 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
 
 - The default local development path is fully in-memory, so data is lost on restart. With `VECTOR_STORE_BACKEND=postgres`, document metadata, summaries, extracted fields, status, processing steps, chunks, embeddings and evaluation runs persist to PostgreSQL/pgvector and survive backend restarts.
 - Docker Compose defaults to the thread upload path for demo reliability. `DOCUMENT_PROCESSING_BACKEND=celery` enables real Celery chain/chord dispatch through Redis, but the committed integration test is opt-in and requires a running Docker stack.
+- Thread-mode tasks run inside the API process. A backend restart loses in-flight work; on the next startup those documents are marked `failed` with a re-upload message. This recovery assumes a single API process (multiple uvicorn workers would need Celery or a lease). It is best effort: if the database is unreachable at startup, recovery is skipped (logged as `interrupted_document_recovery_failed`) and the API still starts so `/ready` can report the outage; stuck documents are then recovered on the next restart.
 - The durable upload store is local filesystem storage for the Docker/local demo. A production deployment would replace it with object/blob storage and a retention policy.
 - PostgreSQL access uses a bounded per-process psycopg connection pool
   (`DATABASE_POOL_MIN_SIZE`, `DATABASE_POOL_MAX_SIZE`,
@@ -11,19 +12,29 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
   vector-store operation in the Docker/Celery path. It is still a small
   portfolio configuration, not a tuned production pool strategy.
 - The pgvector schema uses a dimensioned `vector(POSTGRES_VECTOR_DIMENSION)`
-  column (default 1536) with a matching HNSW cosine index. Docker uses hash
-  embeddings sized to that configured pgvector dimension so the no-key demo
-  works. For a real semantic embedding model, the dimension must match the
+  column (default 1536) with a matching HNSW cosine index. Docker defaults to
+  hash embeddings (unless `EMBEDDING_BACKEND` is set) sized to that configured
+  pgvector dimension so the no-key demo works. Switching embedding backends on
+  an existing database mixes incomparable vectors of the same dimension; the
+  app does not detect this, so reset the volume or re-upload documents. For a real semantic embedding model, the dimension must match the
   active model; changing the embedding model requires updating the setting,
   running a new migration and rebuilding existing embeddings. Indexing and
   search both reject vectors whose length does not match, to fail fast on a
   mismatch. Readiness also validates the vector index method and operator class;
   changing those settings requires a migration that rebuilds the index. Cosine
   is the only implemented pgvector metric.
-- AI runs through a provider adapter. With an `OPENROUTER_API_KEY` it uses real
-  LLM generation/extraction and semantic embeddings; with no key it falls back to
+- AI runs through a provider adapter. With `ENABLE_LLM=true` it uses real LLM
+  generation/extraction/summaries from OpenRouter (`OPENROUTER_API_KEY`) or a
+  local Ollama server (`LLM_PROVIDER=ollama`, no key). Semantic embeddings come
+  from OpenRouter (`EMBEDDING_BACKEND=auto` with a key, or `openrouter`) or local
+  `sentence-transformers` (`local`). Without those it falls back to
   deterministic local implementations: hash (lexical, non-semantic) embeddings
-  and an extractive, non-generative answerer.
+  and an extractive, non-generative answerer. Docker Compose defaults to
+  hash embeddings when `EMBEDDING_BACKEND` is unset.
+- The Ollama path is a CPU-friendly local option, not a tuned deployment. Small
+  local models are slower and less reliable at citation-tag and JSON-schema
+  compliance; failures fall back to the offline heuristics unless
+  `STRICT_PROVIDER_MODE=true`. No Ollama live smoke target exists yet.
 - The LLM-backed path is the primary product path for answer quality. The
   offline lexical path is deliberately kept as a deterministic fallback for CI,
   tests and key-less demos. It has a known false-positive mode: on keyword-dense
@@ -35,8 +46,8 @@ IntelliDocs AI is a production-style portfolio implementation, not an enterprise
   isolated fresh databases, but no live result is committed as a fixed metric
   because provider behavior is paid and non-deterministic. The committed
   evaluation snapshot remains offline only.
-- The support-check gate verifies citation integrity and lexical grounding overlap: final answers must have mapped citations from retrieved context and share content tokens with cited chunks. It is not a semantic entailment checker, so a cited-but-wrong answer can still pass the gate.
-- The evaluation does not deeply score answer *correctness* (only retrieval hit, citation presence, support-check pass rate, unsupported-answer rejection and extraction field accuracy), so an answer that cites the wrong-but-plausible document is only partially penalised by these metrics.
+- The support-check gate verifies citation integrity and lexical grounding overlap: final answers must have mapped citations from retrieved context, share content tokens (function words excluded) with cited chunks, and contain no numbers absent from the cited chunks and the question. It is not a semantic entailment checker, so a cited-but-wrong answer that reuses the chunk's own words and numbers can still pass the gate. Numbers repeated from the question are accepted (so comparison questions such as "above 10,000 EUR" work), which means a leading question can carry a wrong number into an answer. Dates are compared as plain numbers: "12.05.2026" in a chunk grounds "12 May 2026" in an answer, but not the reverse.
+- Answer correctness is scored only lexically: `answer_fact_recall` checks that expected fact strings appear in the answer, and `first_citation_document_accuracy` checks the leading citation's document. There is no semantic or LLM-judge scoring, so correct paraphrases score 0 for fact recall and a wrong statement that happens to contain the fact string scores 1.
 - Purpose-scoped privacy variants are produced by the redaction helper. The
   current policy makes `ai_text` and `display_text` identical after high-risk
   redaction. In Postgres mode, `ai_text` is persisted on `documents.ai_text` for

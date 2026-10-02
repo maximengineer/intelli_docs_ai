@@ -39,7 +39,6 @@ class HashEmbeddingModel:
     """
 
     name = "local-hash-embedding"
-    version = "0.1.0"
 
     def embed(self, text: str) -> list[float]:
         settings = get_settings()

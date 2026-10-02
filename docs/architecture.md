@@ -58,6 +58,9 @@ Docker Compose is the primary runtime target for the project. The stack includes
 - `backend`: FastAPI app, health-checked through `/ready`.
 - `worker`: Celery worker using the same backend image.
 - `frontend`: Streamlit UI built as its own image.
+- `ollama` (optional, `ollama` profile): local OpenAI-compatible LLM server used
+  by `make up-ollama`; the backend reaches it through the same `LLMClient`
+  adapter as OpenRouter.
 - `tests`: profile-gated test runner using the same backend image.
 - `live-tests`: profile-gated HTTP client for the strict provider smoke, built
   from the same backend image but without receiving the provider key.
@@ -84,14 +87,17 @@ POST /qa
   -> rerank candidates
   -> generate answer with <cite index="...">
   -> backend validates citation indexes
-  -> support-check gate: citation integrity + lexical grounding overlap
+  -> support-check gate: citation integrity + lexical and numeric grounding
   -> return real source metadata and run metrics
 ```
 
-The support-check gate has two deterministic layers: citation integrity (cited
-chunk IDs must belong to retrieved context) and grounding (the answer must share
-content tokens with the chunk text it cites, so an answer that cites context it
-did not use is rejected). It is lexical, not semantic entailment.
+The support-check gate has three deterministic layers: citation integrity (cited
+chunk IDs must belong to retrieved context), lexical grounding (the answer must
+share content tokens with the chunk text it cites; function words such as "the"
+do not count, so an answer that cites context it did not use is rejected) and
+numeric grounding (every number in the answer must appear in the cited chunks
+or the question, so invented amounts and dates are rejected). It is lexical, not
+semantic entailment.
 
 The LLM-backed path is the primary product path for answer quality. The offline
 lexical answerer exists so CI, tests and key-less demos are deterministic; its

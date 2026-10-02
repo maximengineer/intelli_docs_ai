@@ -24,6 +24,10 @@ TAX_ID_RE = re.compile(
     re.IGNORECASE,
 )
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+# dd.mm.yyyy, dd/mm/yy, mm-dd-yyyy, ...: both leading parts within 1-31 and the
+# same separator twice, so phone-like digit runs (e.g. "555.0199") still redact.
+_DAY_OR_MONTH = r"(?:0?[1-9]|[12]\d|3[01])"
+NUMERIC_DATE_RE = re.compile(rf"\b{_DAY_OR_MONTH}([./-]){_DAY_OR_MONTH}\1(?:\d{{4}}|\d{{2}})\b")
 
 
 class PrivacyTexts(BaseModel):
@@ -56,6 +60,7 @@ def _redact_high_risk(text: str) -> str:
         return token
 
     redacted = ISO_DATE_RE.sub(protect_date, text)
+    redacted = NUMERIC_DATE_RE.sub(protect_date, redacted)
     redacted = EMAIL_RE.sub("[REDACTED_EMAIL]", redacted)
     redacted = IBAN_RE.sub("[REDACTED_ACCOUNT]", redacted)
     redacted = CARD_RE.sub("[REDACTED_CARD]", redacted)

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 
 from app.core.settings import get_settings
 from app.core.text import WORD_RE
+from app.documents.chunker import is_section_heading
 from app.llm.client import LLMClient
 from app.llm.prompt_registry import get_prompt
 from app.rag.schemas import RetrievedChunk
@@ -39,11 +41,20 @@ STOPWORDS = {
 }
 
 
-def generate_answer_with_placeholders(
+@dataclass(frozen=True)
+class GeneratedAnswer:
+    text: str
+    # True only when the LLM produced ``text``. False for the offline heuristic,
+    # including when it ran as a fallback after a provider failure, so metrics
+    # never attribute a heuristic answer (or its cost) to the LLM.
+    used_llm: bool
+
+
+def generate_answer(
     question: str,
     context: list[RetrievedChunk],
     llm_client: LLMClient | None = None,
-) -> str:
+) -> GeneratedAnswer:
     """Produce an answer that cites context with ``<cite index="N">`` placeholders.
 
     When an LLM client is configured the model writes the answer and chooses the
@@ -52,15 +63,24 @@ def generate_answer_with_placeholders(
     deterministic keyword-overlap extractor runs so the demo works offline.
     """
     if not context:
-        return FALLBACK_ANSWER
+        return GeneratedAnswer(FALLBACK_ANSWER, used_llm=False)
     if llm_client is not None:
         try:
-            return _generate_with_llm(question, context, llm_client)
-        except Exception:  # pragma: no cover - network/provider failure
+            return GeneratedAnswer(_generate_with_llm(question, context, llm_client), used_llm=True)
+        except Exception:
             if get_settings().strict_provider_mode:
                 raise
             logger.warning("llm_generation_failed; using offline fallback", exc_info=True)
-    return _generate_with_heuristic(question, context)
+    return GeneratedAnswer(_generate_with_heuristic(question, context), used_llm=False)
+
+
+def generate_answer_with_placeholders(
+    question: str,
+    context: list[RetrievedChunk],
+    llm_client: LLMClient | None = None,
+) -> str:
+    """Text-only convenience wrapper around :func:`generate_answer`."""
+    return generate_answer(question, context, llm_client).text
 
 
 def _generate_with_llm(question: str, context: list[RetrievedChunk], llm_client: LLMClient) -> str:
@@ -106,6 +126,10 @@ def _best_sentence(text: str, question_terms: set[str]) -> str | None:
     best_score = 0
     required_score = min(2, len(question_terms))
     for sentence in sentences:
+        if is_section_heading(sentence) and not any(char.isdigit() for char in sentence):
+            # A heading labels evidence; it is not evidence itself. All-caps
+            # lines carrying a number ("TOTAL DUE: EUR 12,450.00") are values.
+            continue
         terms = {token.lower() for token in WORD_RE.findall(sentence)}
         score = len(question_terms & terms)
         if score > best_score:

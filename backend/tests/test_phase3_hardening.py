@@ -90,6 +90,64 @@ def test_support_check_rejects_answer_not_grounded_in_cited_chunk() -> None:
     assert result.reason.startswith("answer_not_grounded_in_citations")
 
 
+_INVOICE_TEXT = "The invoice total is EUR 12,450.00 and payment is due in 30 days."
+
+
+def _invoice_support_check(answer: str, question: str = "") -> object:
+    return check_answer_support(
+        answer,
+        [
+            SourceCitation(
+                document_id="doc_1",
+                filename="invoice.txt",
+                chunk_id="chunk_1",
+                snippet=_INVOICE_TEXT,
+            )
+        ],
+        [
+            RetrievedChunk(
+                document_id="doc_1",
+                filename="invoice.txt",
+                chunk_id="chunk_1",
+                text=_INVOICE_TEXT,
+                score=0.9,
+            )
+        ],
+        question,
+    )
+
+
+def test_support_check_ignores_function_words_as_grounding() -> None:
+    # Shares only "the", "and" and "is" with the cited chunk: not evidence.
+    result = _invoice_support_check("The moon is made of cheese and the sky is green.")
+
+    assert result.supported is False
+    assert result.reason == "answer_not_grounded_in_citations:overlap=0"
+
+
+def test_support_check_rejects_numbers_missing_from_citations() -> None:
+    result = _invoice_support_check("The invoice total is EUR 99,999.00.")
+
+    assert result.supported is False
+    assert result.reason == "numbers_not_in_citations:99999"
+
+
+def test_support_check_accepts_grounded_answer_with_reformatted_numbers() -> None:
+    result = _invoice_support_check("The invoice total is EUR 12450 and payment is due in 30 days.")
+
+    assert result.supported is True
+    assert result.reason == "citations_supported_by_context"
+
+
+def test_support_check_allows_numbers_repeated_from_question() -> None:
+    result = _invoice_support_check(
+        "The invoice total of EUR 12,450.00 is above 10,000 EUR.",
+        question="Which invoice is above 10,000 EUR?",
+    )
+
+    assert result.supported is True
+
+
 def test_document_status_includes_phase3_branch_statuses() -> None:
     service = DocumentService()
 
@@ -181,3 +239,22 @@ def test_celery_chord_errback_finds_document_id_when_celery_reorders_args(
 
     assert payload["document_id"] == "doc_err"
     assert failures == [("doc_err", "boom")]
+
+
+def test_numeric_values_split_dotted_dates_into_day_month_and_year() -> None:
+    from decimal import Decimal
+
+    from app.core.text import numeric_values
+
+    # "12.05.2026" is a date, not the decimal 12.05, so a reworded date in the
+    # answer ("12 May 2026") is still grounded in the cited chunk.
+    assert numeric_values("Due on 12.05.2026.") == {Decimal(12), Decimal(5), Decimal(2026)}
+    assert numeric_values("Due on 12 May 2026.") <= numeric_values("Due on 12.05.2026.")
+    assert numeric_values("Total 12,450.00 EUR") == {Decimal(12450)}
+
+
+def test_celery_app_default_limits_come_from_settings() -> None:
+    from worker.worker import celery_app
+
+    assert celery_app.conf.task_soft_time_limit == 50
+    assert celery_app.conf.task_time_limit == 60

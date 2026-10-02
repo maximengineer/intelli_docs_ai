@@ -135,3 +135,37 @@ def test_retriever_passes_document_id_filter_to_document_service() -> None:
     retriever.retrieve(QARequest(question="What is the total amount?", document_ids=["doc_a"]))
 
     assert document_service.last_document_ids == ["doc_a"]
+
+
+def test_heuristic_answer_skips_section_headings_as_evidence() -> None:
+    from app.rag.generator import generate_answer_with_placeholders
+
+    chunk = RetrievedChunk(
+        document_id="doc_contract",
+        filename="contract.txt",
+        chunk_id="doc_contract_chunk_0000",
+        text="SERVICE AGREEMENT\nRenewal Terms: Auto-renewal for successive one-year terms.",
+        score=0.9,
+    )
+
+    answer = generate_answer_with_placeholders(
+        "What are the renewal terms in the service agreement?", [chunk]
+    )
+
+    assert answer == 'Renewal Terms: Auto-renewal for successive one-year terms. <cite index="0">'
+
+
+def test_heuristic_answer_keeps_all_caps_value_lines() -> None:
+    from app.rag.generator import generate_answer_with_placeholders
+
+    chunk = RetrievedChunk(
+        document_id="doc_invoice",
+        filename="invoice.txt",
+        chunk_id="doc_invoice_chunk_0000",
+        text="INVOICE\nTOTAL AMOUNT DUE: EUR 12,450.00",
+        score=0.9,
+    )
+
+    answer = generate_answer_with_placeholders("What is the total amount due?", [chunk])
+
+    assert answer == 'TOTAL AMOUNT DUE: EUR 12,450.00 <cite index="0">'

@@ -32,6 +32,12 @@ Then restart:
 make restart
 ```
 
+Optional local LLM path (no API key, CPU; pulls `phi4-mini` on first run):
+
+```bash
+make up-ollama
+```
+
 ## Walkthrough
 
 1. Upload `data/sample_documents/invoice_acme.txt`.
@@ -66,10 +72,16 @@ For local iteration, the equivalent command is:
 ENABLE_LLM=false EMBEDDING_BACKEND=hash VECTOR_STORE_BACKEND=memory uv run python scripts/run_evaluation.py
 ```
 
-Talking point: the committed offline snapshot has an
-`unsupported_answer_rejection_rate` below 1.0. That is intentional and honest:
-the lexical fallback is fooled by one keyword-dense but unsupported question.
-The project reports this rather than hiding it.
+Talking point: the committed offline snapshot is deliberately not all 1.0.
+The lexical fallback refuses a comparison question, misses a fact on a
+neighbouring line, leads one answer with a distractor invoice and is fooled by
+one keyword-dense unsupported question. The metrics (`citation_coverage` over
+all answerable questions, `answer_fact_recall`,
+`first_citation_document_accuracy`, `unsupported_answer_rejection_rate`) are
+designed to expose exactly these failures, and the project reports them rather
+than tuning them away. An earlier version of `citation_coverage` was a
+tautology (always 1.0). Finding and fixing that is a good story about not
+trusting your own metrics.
 
 ## Engineering Talking Points
 

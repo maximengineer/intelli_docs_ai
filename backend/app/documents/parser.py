@@ -3,9 +3,13 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import TYPE_CHECKING
 
 from app.core.errors import ParserTimeoutError, UnsupportedFileTypeError
 from app.documents.schemas import ParsedDocument, ParsedPage
+
+if TYPE_CHECKING:
+    from docx.table import Table
 
 ParserFunc = Callable[[str, str, bytes], ParsedDocument]
 
@@ -51,6 +55,7 @@ def _parse_txt(document_id: str, filename: str, content: bytes) -> ParsedDocumen
 def _parse_docx(document_id: str, filename: str, content: bytes) -> ParsedDocument:
     try:
         from docx import Document
+        from docx.table import Table
     except ImportError as exc:
         raise UnsupportedFileTypeError("DOCX parsing requires python-docx.") from exc
 
@@ -58,9 +63,16 @@ def _parse_docx(document_id: str, filename: str, content: bytes) -> ParsedDocume
         tmp.write(content)
         tmp.flush()
         doc = Document(tmp.name)
-        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        # Walk paragraphs and tables in document order: business DOCX files
+        # (invoices especially) often keep their key values in tables.
+        lines: list[str] = []
+        for block in doc.iter_inner_content():
+            if isinstance(block, Table):
+                lines.extend(_docx_table_lines(block))
+            elif block.text.strip():
+                lines.append(block.text.strip())
 
-    text = "\n".join(paragraphs).strip()
+    text = "\n".join(lines).strip()
     pages = [ParsedPage(page_number=None, text=text, section_title=_first_heading(text))]
     return ParsedDocument(document_id=document_id, filename=filename, text=text, pages=pages)
 
@@ -91,6 +103,20 @@ def _parse_pdf(document_id: str, filename: str, content: bytes) -> ParsedDocumen
     if not text:
         raise UnsupportedFileTypeError("No digital text found. Scanned PDF OCR is out of scope.")
     return ParsedDocument(document_id=document_id, filename=filename, text=text, pages=pages)
+
+
+def _docx_table_lines(table: "Table") -> list[str]:
+    """One ``a | b | c`` line per table row; merged cells repeat, so dedupe neighbours."""
+    lines: list[str] = []
+    for row in table.rows:
+        cells: list[str] = []
+        for cell in row.cells:
+            value = " ".join(cell.text.split())
+            if value and (not cells or cells[-1] != value):
+                cells.append(value)
+        if cells:
+            lines.append(" | ".join(cells))
+    return lines
 
 
 def _first_heading(text: str) -> str | None:

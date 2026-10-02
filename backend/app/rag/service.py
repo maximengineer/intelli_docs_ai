@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from functools import lru_cache
 
 from app.core.settings import get_settings
 from app.documents.service import get_document_service
@@ -11,7 +12,7 @@ from app.observability.costs import TokenUsage, estimate_cost_usd, estimate_toke
 from app.observability.run_logger import log_run_event
 from app.rag.citations import map_citations
 from app.rag.critic import SupportCheckResult, check_answer_support
-from app.rag.generator import FALLBACK_ANSWER, generate_answer_with_placeholders
+from app.rag.generator import FALLBACK_ANSWER, generate_answer
 from app.rag.retriever import Retriever
 from app.rag.schemas import QAMetrics, QARequest, QAResponse, RetrievedChunk
 
@@ -40,46 +41,13 @@ class QAService:
                 self.llm_client.pop_usage()  # clear any stale per-thread usage
             retrieval = self.retriever.retrieve(request)
             context = retrieval.context
-            settings = get_settings()
-            # Gate on the best raw-retrieval cosine, not the post-rerank ordering.
-            best_candidate_score = retrieval.candidates[0].score if retrieval.candidates else 0.0
-            if not context or best_candidate_score < settings.min_relevance_score:
-                metrics = self._metrics(
-                    run_id=run_id,
-                    started=started,
-                    question=request.question,
-                    context=context,
-                    candidates_retrieved=len(retrieval.candidates),
-                    answer=FALLBACK_ANSWER,
-                    citation_count=0,
-                    status="insufficient_information",
-                    support_check=SupportCheckResult(
-                        supported=False,
-                        reason="relevance_below_threshold",
-                    ),
-                )
-                return self._insufficient(run_id, metrics)
 
-            draft = generate_answer_with_placeholders(request.question, context, self.llm_client)
-            answer, sources, supported = map_citations(draft, context)
-            if not supported or not sources:
-                metrics = self._metrics(
-                    run_id=run_id,
-                    started=started,
-                    question=request.question,
-                    context=context,
-                    candidates_retrieved=len(retrieval.candidates),
-                    answer=FALLBACK_ANSWER,
-                    citation_count=0,
-                    status="insufficient_information",
-                    support_check=SupportCheckResult(
-                        supported=False,
-                        reason="citation_mapping_failed",
-                    ),
-                )
-                return self._insufficient(run_id, metrics)
-            support_check = check_answer_support(answer, sources, context)
-            if not support_check.supported:
+            def refuse(
+                support_check: SupportCheckResult,
+                *,
+                used_llm: bool = False,
+                answer_generated: bool = True,
+            ) -> QAResponse:
                 metrics = self._metrics(
                     run_id=run_id,
                     started=started,
@@ -90,8 +58,46 @@ class QAService:
                     citation_count=0,
                     status="insufficient_information",
                     support_check=support_check,
+                    used_llm=used_llm,
+                    answer_generated=answer_generated,
                 )
-                return self._insufficient(run_id, metrics)
+                return QAResponse(
+                    run_id=run_id,
+                    answer=FALLBACK_ANSWER,
+                    status="insufficient_information",
+                    sources=[],
+                    metrics=metrics,
+                )
+
+            # Gate on the best raw-retrieval cosine, not the post-rerank ordering.
+            best_candidate_score = retrieval.candidates[0].score if retrieval.candidates else 0.0
+            if not context or best_candidate_score < get_settings().min_relevance_score:
+                return refuse(
+                    SupportCheckResult(supported=False, reason="relevance_below_threshold"),
+                    answer_generated=False,
+                )
+
+            generated = generate_answer(request.question, context, self.llm_client)
+            used_llm = generated.used_llm
+            answer, sources, supported = map_citations(generated.text, context)
+            # A refusal is a refusal even when the model also attached a citation
+            # or wrapped it in prose: never return it as a cited success.
+            declined = FALLBACK_ANSWER in " ".join(generated.text.split())
+            if declined or not supported or not sources:
+                if used_llm and not declined:
+                    # The model answered but broke the citation contract (no or
+                    # invalid tags). Log it: otherwise this looks like an
+                    # ordinary refusal and the provider's weakness stays hidden.
+                    logger.warning(
+                        "llm_citation_contract_failed run_id=%s model=%s",
+                        run_id,
+                        self._llm_model_name(),
+                    )
+                reason = "answer_declined" if declined else "citation_mapping_failed"
+                return refuse(SupportCheckResult(supported=False, reason=reason), used_llm=used_llm)
+            support_check = check_answer_support(answer, sources, context, request.question)
+            if not support_check.supported:
+                return refuse(support_check, used_llm=used_llm)
             metrics = self._metrics(
                 run_id=run_id,
                 started=started,
@@ -102,6 +108,7 @@ class QAService:
                 citation_count=len(sources),
                 status="success",
                 support_check=support_check,
+                used_llm=used_llm,
             )
             return QAResponse(
                 run_id=run_id,
@@ -130,31 +137,48 @@ class QAService:
         citation_count: int,
         status: str,
         support_check: SupportCheckResult | None = None,
+        used_llm: bool = False,
+        answer_generated: bool = True,
     ) -> QAMetrics:
         settings = get_settings()
-        usage = self.llm_client.pop_usage() if self.llm_client is not None else None
-        if usage is None:
-            # No real provider usage (offline heuristic, or no LLM call this turn):
-            # fall back to a clearly-approximate word-count estimate.
+        # Always pop so per-thread usage never leaks into the next run, but only
+        # count it when the LLM actually produced this answer.
+        popped = self.llm_client.pop_usage() if self.llm_client is not None else None
+        usage = popped if used_llm else None
+        if not answer_generated:
+            # Refused before any answerer ran: no model, nothing consumed.
+            usage = TokenUsage(source="none")
+        elif usage is None:
+            # No real provider usage (offline heuristic, provider without usage
+            # metadata, or no LLM call this turn): a clearly-approximate estimate.
             input_text = question + "\n" + "\n".join(chunk.text for chunk in context)
             usage = TokenUsage(
                 input_tokens=estimate_tokens(input_text),
                 output_tokens=estimate_tokens(answer),
                 source="estimate",
             )
-        model_name = (
-            settings.active_llm_model if self.llm_client is not None else "offline-heuristic"
-        )
+        model_name: str | None
+        if not answer_generated:
+            model_name = None
+        elif used_llm:
+            model_name = self._llm_model_name()
+        else:
+            model_name = "offline-heuristic"
         prices_configured = bool(
             settings.llm_input_price_per_1m_tokens or settings.llm_output_price_per_1m_tokens
         )
-        cost_estimate_available = self.llm_client is None or prices_configured
-        if self.llm_client is None:
+        estimated_cost_usd: float | None
+        if not used_llm or settings.llm_provider == "ollama":
+            # No provider call, or a local model: the API cost is a known zero.
+            # Local compute cost is out of scope.
             estimated_cost_usd = 0.0
+            cost_estimate_available = True
         elif prices_configured:
             estimated_cost_usd = estimate_cost_usd(usage)
+            cost_estimate_available = True
         else:
             estimated_cost_usd = None
+            cost_estimate_available = False
         metrics = QAMetrics(
             latency_ms=int((time.perf_counter() - started) * 1000),
             candidates_retrieved=candidates_retrieved,
@@ -174,19 +198,13 @@ class QAService:
         log_run_event(run_id=run_id, event="qa_metrics", status=status, **metrics.model_dump())
         return metrics
 
-    @staticmethod
-    def _insufficient(run_id: str, metrics: QAMetrics | None = None) -> QAResponse:
-        return QAResponse(
-            run_id=run_id,
-            answer=FALLBACK_ANSWER,
-            status="insufficient_information",
-            sources=[],
-            metrics=metrics,
-        )
+    def _llm_model_name(self) -> str:
+        # The client knows which model it calls; settings are only a fallback
+        # for clients (e.g. test doubles) that do not expose one.
+        return getattr(self.llm_client, "model_name", None) or get_settings().active_llm_model
 
 
-_qa_service = QAService(Retriever(get_document_service()))
-
-
+@lru_cache(maxsize=1)
 def get_qa_service() -> QAService:
-    return _qa_service
+    """Process-wide Q&A service, built on first use rather than at import."""
+    return QAService(Retriever(get_document_service()))
